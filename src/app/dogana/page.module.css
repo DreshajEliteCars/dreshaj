@@ -1,0 +1,177 @@
+.container {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 40px 16px;
+  min-height: 100vh;
+}
+
+.headerTitle {
+  font-size: 32px;
+  font-weight: 800;
+  color: #1a1a1a;
+  margin-bottom: 12px;
+  letter-spacing: -0.5px;
+}
+
+.headerDesc {
+  font-size: 16px;
+  color: #666;
+  line-height: 1.5;
+  margin-bottom: 32px;
+  max-width: 600px;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border: 1px solid #eaeaea;
+  padding: 32px;
+}
+
+.cardTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 24px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 768px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.label svg {
+  width: 14px;
+  height: 14px;
+}
+
+.input, .select {
+  height: 48px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 15px;
+  color: #333;
+  width: 100%;
+  background-color: #fff;
+  font-family: inherit;
+}
+
+.input:focus, .select:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.selectWrapper {
+  position: relative;
+}
+
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+}
+
+.selectArrow {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #888;
+  font-size: 12px;
+}
+
+.checkboxGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  accent-color: #007bff;
+}
+
+.checkboxLabel {
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+}
+
+.summaryCard {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border: 1px solid #eaeaea;
+  padding: 32px;
+  margin-top: 24px;
+}
+
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+  color: #666;
+  font-size: 14px;
+}
+
+.summaryValue {
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.divider {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px dashed #e0e0e0;
+}
+
+.summaryRowTotal {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-weight: 700;
+  font-size: 15px;
+  color: #1a1a1a;
+}
+
+.summaryTotalValueBlue {
+  color: #007bff;
+}
+
+.summaryRowGrandTotal {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+  font-weight: 800;
+  font-size: 18px;
+  color: #1a1a1a;
+}
