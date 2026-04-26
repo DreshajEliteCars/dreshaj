@@ -4,6 +4,8 @@ import styles from "./kalkulatori.module.css";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import Footer from "../../components/Footer";
+import Header from "../../components/Header";
 
 export default function Kalkulatori() {
   const [vlera, setVlera] = useState<string>("10000");
@@ -38,40 +40,15 @@ export default function Kalkulatori() {
   return (
     <>
       {/* ===== HEADER ===== */}
-      <header className={styles.header}>
-        <div className={styles.headerInner}>
-          <div className={styles.headerLeft}>
-            <div className={styles.logo}>
-              <Link href="/">
-                <Image
-                  src="/images/logo.png"
-                  alt="Dreshaj Elite Cars"
-                  width={200}
-                  height={100}
-                  priority
-                  style={{ objectFit: "contain" }}
-                />
-              </Link>
-            </div>
-            <nav className={styles.headerNav}>
-            </nav>
-          </div>
-          <div className={styles.headerRight}>
-            <Link href="/" className={styles.calcButton}>Kthehu mbrapa</Link>
-            <span className={styles.starIcon}>★</span>
-            <div className={styles.langSelector}>
-              Shqip
-              <svg viewBox="0 0 12 12" fill="currentColor">
-                <path d="M2 4l4 4 4-4z" />
-              </svg>
-            </div>
-          </div>
-        </div>
-      </header>
+      <Header />
 
       {/* ===== CALCULATOR PAGE ===== */}
       <main className={styles.calcPage}>
         <div className={styles.calcContainer}>
+          <Link href="/" style={{ color: '#0050d2', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '18px', marginBottom: '24px' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            Back
+          </Link>
           <h1 className={styles.pageTitle}>Kalkulatori i Doganës</h1>
           <p className={styles.pageDescription}>
             Për të marrë një vlerësim të përafërt të taksave doganore për importin e një automjeti në Kosovë, ju lutem përdorni këtë mjet. Ky vlerësim është vetëm një vlerësim i përafërt dhe nuk është i saktë. Për një vlerësim më të saktë dhe të detajuar, ose për çdo pyetje të mëtejshme, ju lutemi kontaktoni stafin tonë.
@@ -183,60 +160,7 @@ export default function Kalkulatori() {
       </main>
 
       {/* ===== FOOTER ===== */}
-      <footer className={styles.footer}>
-        <div className={styles.footerInner}>
-          <div className={styles.footerMain}>
-            
-            {/* Column 1 */}
-            <div className={styles.footerCol}>
-              <h3 className={styles.footerLogoTitle}>DRESHAJ<br />ELITE CARS</h3>
-              <p className={styles.footerText}>Besueshmëri në Çdo Hap!</p>
-            </div>
-
-            {/* Column 2 */}
-            <div className={styles.footerCol}>
-              <h4 className={styles.footerColTitle}>Linqe të Shpejta</h4>
-              <ul className={styles.footerLinks}>
-                <li><Link href="/">Ballina</Link></li>
-                <li><Link href="/">Inventari</Link></li>
-                <li><Link href="/">Të Ruajtura</Link></li>
-              </ul>
-            </div>
-
-            {/* Column 3 */}
-            <div className={styles.footerCol}>
-              <h4 className={styles.footerColTitle}>Kontakti</h4>
-              <p className={styles.footerText}>Shpend Malaj, Prishtinë,<br />Kosovë</p>
-              <p className={styles.footerText} style={{ marginTop: "12px" }}>info@dreshajelitecars.com</p>
-              <p className={styles.footerText} style={{ marginTop: "8px" }}>+383 44 202 673</p>
-            </div>
-
-            {/* Column 4 */}
-            <div className={styles.footerCol}>
-              <h4 className={styles.footerColTitle}>Na Ndiqni</h4>
-              <div className={styles.footerSocials}>
-                <a href="#" aria-label="Facebook">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
-                </a>
-                <a href="#" aria-label="Instagram">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-                </a>
-                <a href="#" aria-label="TikTok">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.01.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 2.23-.9 4.45-2.35 6.13-1.45 1.68-3.52 2.72-5.74 2.98-2.22.26-4.52-.09-6.42-1.25-1.9-1.16-3.32-2.98-3.95-5.11-.63-2.13-.42-4.46.61-6.43 1.03-1.97 2.78-3.48 4.88-4.17 2.1-.69 4.41-.53 6.38.45V14.1c-1.07-.64-2.35-.8-3.51-.43-1.16.37-2.13 1.25-2.6 2.37-.47 1.12-.4 2.4.19 3.47.59 1.07 1.65 1.83 2.85 2.03 1.2.2 2.46-.08 3.39-.77.93-.69 1.5-1.78 1.52-2.97.02-4.63.01-9.26.01-13.89z"/></svg>
-                </a>
-                <a href="#" aria-label="WhatsApp">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-                </a>
-              </div>
-            </div>
-
-          </div>
-
-          <div className={styles.footerBottom}>
-            © 2026 Dreshaj Elite Cars. Të gjitha të drejtat e rezervuara.
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </>
   );
 }

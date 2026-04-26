@@ -1,4 +1,4 @@
-import styles from "../app/page.module.css";
+import styles from "./CarGrid.module.css";
 
 type CarItem = {
   img: string;
