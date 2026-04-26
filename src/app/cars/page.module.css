@@ -1,0 +1,331 @@
+.carsLayout {
+  max-width: 1240px;
+  margin: 48px auto;
+  padding: 0 24px;
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+/* SIDEBAR ACCORDION */
+.filtersSidebar {
+  flex: 0 0 300px;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  position: sticky;
+  top: 100px;
+  overflow: hidden;
+}
+
+.filterHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.filterTitle {
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.clearFilters {
+  font-size: 14px;
+  color: var(--color-primary-default);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.accordionItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  background: white;
+  transition: background 0.2s;
+}
+
+.accordionItem:hover {
+  background: #f8f9fa;
+}
+
+.accordionItem svg {
+  width: 18px;
+  height: 18px;
+}
+
+.accordionIconTitle {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.accordionIcon {
+  color: var(--color-text-and-icon-muted);
+}
+
+.accordionItem.active {
+  background: #f8f9fa;
+  border-left: 3px solid var(--color-primary-default);
+  padding-left: 21px;
+}
+
+/* MAIN CONTENT AREA */
+.mainContent {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Results Header */
+.resultsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 16px;
+}
+.resultsCount {
+  font-size: 22px;
+  color: var(--color-text-primary);
+}
+.resultsCount strong {
+  font-weight: 700;
+}
+.sortWrapper {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+.sortWrapper select {
+  border: none;
+  background: transparent;
+  color: var(--color-primary-default);
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+/* Search Chips */
+.searchChips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  background: white;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+}
+.chip {
+  background: #f1f3f5;
+  color: var(--color-text-primary);
+  border-radius: var(--radius-full);
+  padding: 8px 16px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chipClose {
+  cursor: pointer;
+  font-weight: bold;
+  color: var(--color-text-secondary);
+}
+
+/* Horizontal Car Card */
+.horizontalCard {
+  display: flex;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.horizontalCard:hover {
+  box-shadow: 0 12px 24px rgba(0,0,0,0.08);
+  transform: translateY(-2px);
+}
+
+.cardImageArea {
+  position: relative;
+  width: 320px;
+  flex-shrink: 0;
+  background: #e9ecef;
+}
+.cardImageArea img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.photoCount {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardBody {
+  padding: 24px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Card Header */
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.cardTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+.cardSubtitle {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+}
+.favButton {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.favButton:hover {
+  background: #f8f9fa;
+  color: var(--color-primary-default);
+  border-color: var(--color-primary-default);
+}
+
+/* Price & Traits */
+.priceWrapper {
+  margin-top: 16px;
+}
+.cardPrice {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+.financeOptions {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--color-primary-default);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.financeOptions span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+/* Badges */
+.traitsContainer {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.traitBadge {
+  background: #f1f3f5;
+  color: var(--color-text-primary);
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Seller Bottom */
+.sellerRow {
+  margin-top: auto;
+  padding-top: 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.sellerInfo {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+.sellerLogo {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 20px;
+  color: black;
+}
+.showMoreLink {
+  color: var(--color-primary-default);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+.showMoreLink:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .carsLayout {
+    flex-direction: column;
+  }
+  .filtersSidebar {
+    flex: none;
+    width: 100%;
+    position: static;
+  }
+  .horizontalCard {
+    flex-direction: column;
+  }
+  .cardImageArea {
+    width: 100%;
+    height: 240px;
+  }
+  .sellerRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+}

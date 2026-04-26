@@ -11,7 +11,14 @@ type CarItem = {
 export default function CarGrid({ title, cars, showOpacity }: { title: string, cars: CarItem[], showOpacity?: boolean }) {
   return (
     <div className={styles.mostWantedSection} style={showOpacity ? { marginTop: '48px' } : undefined}>
-      <h2 className={styles.mostWantedTitle}>{title}</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '24px' }}>
+        <h2 className={styles.mostWantedTitle} style={{ marginBottom: 0 }}>{title}</h2>
+        {title === "Më të kërkuarat" && (
+          <a href="/cars" style={{ color: 'var(--color-primary-default)', textDecoration: 'none', fontWeight: 600, fontSize: '14px' }}>
+            Shiko të gjithat →
+          </a>
+        )}
+      </div>
       <div className={styles.mostWantedGrid}>
         {cars.map((car, i) => (
           <div key={i} className={styles.listingCard} style={showOpacity ? { opacity: 0.75 } : undefined}>
