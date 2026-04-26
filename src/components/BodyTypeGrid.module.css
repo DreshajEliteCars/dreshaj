@@ -1,0 +1,32 @@
+.bodyTypeSection { padding: 24px 0 16px; }
+.sectionTitle { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 16px; }
+.bodyTypeGrid { display: flex; gap: 8px; justify-content: space-between; }
+.bodyTypeItem { display: flex; flex-direction: column; align-items: center; cursor: pointer; padding: 8px; border-radius: 8px; transition: background-color 0.2s; flex: 1; }
+.bodyTypeItem:hover { background-color: #e8e8e8; }
+.bodyTypeIcon { width: 80px; height: 48px; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
+.bodyTypeIcon img { width: auto; height: 100%; max-width: 72px; max-height: 40px; object-fit: contain; }
+.bodyTypeLabel { font-size: 11px; color: #333; text-align: center; white-space: nowrap; }
+
+/* DEMAND + DISCOVER */
+.demandDiscoverRow { display: flex; gap: 16px; margin-bottom: 24px; }
+.demandCard { flex: 1; background: var(--color-surface-default); border-radius: var(--border-radius-m); padding: 16px 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.demandTitle { font-size: 12px; color: #777; margin-bottom: 12px; }
+.demandGrid { display: flex; gap: 16px; }
+.demandItem { display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+.demandCircle { width: 60px; height: 60px; border-radius: 50%; overflow: hidden; margin-bottom: 6px; border: 2px solid transparent; transition: border-color 0.2s; }
+.demandItem:hover .demandCircle { border-color: var(--color-stroke-strong); }
+.demandCircle img { width: 100%; height: 100%; object-fit: cover; }
+.demandLabel { font-size: 11px; color: #333; text-align: center; white-space: nowrap; }
+.demandLabelActive { color: var(--color-text-and-icon-link); font-weight: var(--scr-font-weight-bold); }
+
+.discoverCard { flex: 1; background: var(--color-surface-default); border-radius: var(--border-radius-m); padding: 16px 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.discoverText h3 { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 8px; line-height: 1.3; }
+.discoverLink { color: var(--color-text-and-icon-link); font-size: var(--scr-font-size-s); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.discoverLink:hover { text-decoration: underline; }
+.discoverImage { width: 140px; height: 80px; flex-shrink: 0; }
+.discoverImage img { width: 100%; height: 100%; object-fit: contain; }
+
+@media (max-width: 860px) {
+  .bodyTypeGrid { flex-wrap: wrap; justify-content: center; }
+  .demandDiscoverRow { flex-direction: column; }
+}

@@ -1,8 +1,13 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
-import styles from "../app/page.module.css";
+import styles from "./Header.module.css";
+import { useLanguage } from "../context/LanguageContext";
 
 export default function Header() {
+  const { language, setLanguage } = useLanguage();
+
   return (
     <header className={styles.header}>
       <div className={styles.headerInner}>
@@ -23,7 +28,8 @@ export default function Header() {
         <div className={styles.headerRight}>
           <div className={styles.langSelector} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <select 
-              defaultValue="sq"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as "sq" | "en")}
               style={{ 
                 appearance: 'none', 
                 background: 'transparent', 

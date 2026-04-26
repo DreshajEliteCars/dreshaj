@@ -1,0 +1,277 @@
+/* ========================= */
+/* SEARCH BOX                 */
+/* ========================= */
+.searchSection {
+  background: var(--color-canvas-default);
+  padding: 24px 0 32px;
+}
+
+.searchBox {
+  max-width: 840px;
+  margin: 0 auto;
+  background: var(--color-surface-default);
+  border-radius: var(--border-radius-m);
+  box-shadow: var(--scr-elevation-low);
+  overflow: hidden;
+}
+
+.searchTabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-stroke-divider);
+}
+
+.searchTab {
+  flex: 0 0 auto;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 20px;
+  border-bottom: 2px solid transparent;
+  transition: border-color 0.2s, color 0.2s;
+  cursor: pointer;
+}
+
+.searchTab:hover {
+  color: #333;
+}
+
+.searchTabActive {
+  color: var(--color-text-and-icon-default);
+  border-bottom-color: var(--color-stroke-strong);
+}
+
+.searchTab svg {
+  width: 28px;
+  height: 28px;
+}
+
+.searchBody {
+  padding: 16px 20px 12px;
+}
+
+.searchTitle {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 12px;
+}
+
+.searchRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.selectWrapper {
+  position: relative;
+  flex: 1;
+}
+
+.selectField {
+  width: 100%;
+  height: 40px;
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--color-stroke-default);
+  border-radius: var(--border-radius-s);
+  font-size: var(--scr-font-size-s);
+  color: var(--color-text-and-icon-default);
+  background: var(--color-surface-default);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.selectField:focus {
+  outline: none;
+  border-color: var(--color-stroke-strong);
+}
+
+.selectArrow {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #888;
+  font-size: 12px;
+}
+
+.searchRow2 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.europeSelect {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-stroke-default);
+  border-radius: var(--border-radius-s);
+  padding: 0 12px;
+  height: 40px;
+  font-size: var(--scr-font-size-s);
+  color: var(--color-text-and-icon-default);
+  background: var(--color-surface-default);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.europeFlag {
+  width: 20px;
+  height: 14px;
+  background: linear-gradient(180deg, #003399 50%, #003399 50%);
+  border-radius: 1px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.europeFlag::after {
+  content: "★";
+  color: #ffcc00;
+  font-size: 8px;
+}
+
+.europeSelectArrow {
+  color: #888;
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.cityInput {
+  flex: 1;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-stroke-default);
+  border-radius: var(--border-radius-s);
+  font-size: var(--scr-font-size-s);
+  color: var(--color-text-and-icon-default);
+  background: var(--color-surface-default);
+}
+
+.cityInput::placeholder {
+  color: var(--color-text-and-icon-muted);
+}
+
+.cityInput:focus {
+  outline: none;
+  border-color: var(--color-stroke-strong);
+}
+
+.searchButton {
+  height: 40px;
+  padding: 0 32px;
+  background-color: var(--button-primary-bg-color);
+  color: var(--button-primary-color);
+  font-size: var(--scr-font-size-s);
+  font-weight: var(--scr-font-weight-bold);
+  border-radius: var(--border-radius-m);
+  white-space: nowrap;
+  transition: background-color 0.2s;
+}
+
+.searchButton:hover {
+  background-color: var(--button-primary-hover-bg-color);
+}
+
+.refineLink {
+  display: block;
+  text-align: right;
+  color: var(--color-text-and-icon-link);
+  font-size: var(--scr-font-size-s);
+  padding: 8px 0 4px;
+  cursor: pointer;
+}
+
+.refineLink:hover {
+  text-decoration: underline;
+}
+
+/* ========================= */
+/* MODAL                      */
+/* ========================= */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease;
+}
+
+.modalContent {
+  background: var(--color-surface-default);
+  width: 90%;
+  max-width: 600px;
+  border-radius: var(--border-radius-m);
+  padding: 32px;
+  position: relative;
+  box-shadow: var(--scr-elevation-medium);
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--color-stroke-divider);
+  padding-bottom: 16px;
+}
+
+.modalTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text-and-icon-default);
+}
+
+.closeButton {
+  font-size: 28px;
+  color: var(--color-text-and-icon-muted);
+  line-height: 1;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
+}
+
+.closeButton:hover {
+  background: var(--scr-black20);
+  color: var(--color-text-and-icon-default);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* RESPONSIVE */
+@media (max-width: 860px) {
+  .searchBox { max-width: 100%; margin: 0 16px; }
+}
+
+@media (max-width: 600px) {
+  .searchRow, .searchRow2 { flex-direction: column; }
+}

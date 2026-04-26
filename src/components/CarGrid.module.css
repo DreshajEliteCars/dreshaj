@@ -1,0 +1,24 @@
+/* MOST WANTED */
+.mostWantedSection { padding-bottom: 48px; }
+.mostWantedTitle { font-size: 22px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; position: relative; display: inline-block; }
+.mostWantedTitle::after { content: ''; display: block; width: 40px; height: 3px; background: var(--color-primary-default); border-radius: 2px; margin-top: 6px; }
+.mostWantedGrid { display: flex; gap: 14px; }
+.listingCard { flex: 1; background: var(--color-surface-default); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 2px 8px rgba(0,0,0,0.04); cursor: pointer; transition: box-shadow 0.25s ease, transform 0.25s ease; border: 1px solid rgba(0,0,0,0.06); }
+.listingCard:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.14); transform: translateY(-4px); }
+.listingImage { width: 100%; height: 150px; overflow: hidden; position: relative; }
+.listingImage img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
+.listingCard:hover .listingImage img { transform: scale(1.04); }
+.listingBadge { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: #fff; font-size: 10px; padding: 3px 8px; border-radius: 4px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
+.listingBody { padding: 12px 14px 14px; }
+.listingTitle { font-size: 13px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.listingDetails { font-size: 11px; color: #888; margin-bottom: 8px; line-height: 1.4; }
+.listingPrice { font-size: 16px; font-weight: 700; color: #1a1a1a; }
+
+@media (max-width: 860px) {
+  .mostWantedGrid { flex-wrap: wrap; }
+  .listingCard { flex: 1 1 calc(50% - 6px); }
+}
+
+@media (max-width: 600px) {
+  .listingCard { flex: 1 1 100%; }
+}
