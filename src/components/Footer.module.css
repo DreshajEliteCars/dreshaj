@@ -4,6 +4,7 @@
 .classicHeader { font-weight: 700; font-size: 15px; color: #333; margin-bottom: 24px; }
 .classicMain { display: flex; justify-content: space-between; margin-bottom: 32px; }
 .classicLeft { flex: 1; }
+.classicMiddle { flex: 1; }
 .classicColTitle { font-weight: 600; font-size: 15px; color: #333; margin-bottom: 12px; }
 .classicLinks { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
 .classicLinks li a { text-decoration: none; color: #666; font-size: 14px; transition: color 0.2s; }

@@ -4,6 +4,7 @@ import Header from "../components/Header";
 import SearchHero from "../components/SearchHero";
 import BodyTypeGrid from "../components/BodyTypeGrid";
 import CarGrid from "../components/CarGrid";
+import ProcessSection from "../components/ProcessSection";
 import Footer from "../components/Footer";
 import styles from "./page.module.css";
 import Link from "next/link";
@@ -49,6 +50,9 @@ export default function Home() {
       <div className={styles.mainContent}>
         <BodyTypeGrid />
         <CarGrid title={t("most_wanted")} cars={DUMMY_CARS} showOpacity={false} />
+        
+        <ProcessSection />
+
         <CarGrid title={t("recently_sold")} cars={DUMMY_CARS.map(c => ({ ...c, badge: "SHITUR" }))} showOpacity={true} />
 
         {/* CALCULATOR BANNER */}

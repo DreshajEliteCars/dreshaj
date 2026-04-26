@@ -14,11 +14,20 @@ export default function Footer() {
             <div className={styles.classicHeader}>
               Dreshaj Elite Cars
             </div>
-            <div className={styles.classicColTitle}>{t("company")}</div>
             <ul className={styles.classicLinks}>
               <li><a href="#">{t("about")}</a></li>
               <li><a href="#">{t("contact")}</a></li>
               <li><a href="#">{t("data_protection")}</a></li>
+            </ul>
+          </div>
+
+          <div className={styles.classicMiddle}>
+            <div className={styles.classicHeader}>Veturat më të shitura</div>
+            <ul className={styles.classicLinks}>
+              <li><a href="#">Audi</a></li>
+              <li><a href="#">Volkswagen</a></li>
+              <li><a href="#">BMW</a></li>
+              <li><a href="#">Mercedes-Benz</a></li>
             </ul>
           </div>
 

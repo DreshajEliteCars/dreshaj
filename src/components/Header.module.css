@@ -78,6 +78,23 @@
   text-decoration: none !important;
 }
 
+.garancionButton {
+  background-color: transparent;
+  color: #fff !important;
+  padding: 6px 12px;
+  border: 1px solid #fff;
+  border-radius: 4px;
+  font-weight: 500 !important;
+  text-decoration: none !important;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+
+.garancionButton:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  text-decoration: none !important;
+}
+
 .headerRight {
   display: flex;
   align-items: center;

@@ -1,8 +1,73 @@
+"use client";
+
+import React, { useState } from "react";
 import styles from "./page.module.css";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 
+const brandModels: Record<string, string[]> = {
+  "Volkswagen": [
+    "Arteon","Atlas","Beetle","CC","Corrado","Eos","Golf","ID.4","ID.5",
+    "Jetta","Microbus","Multivan","Passat","Phaeton","Polo","Rialta",
+    "Scirocco","Sharan","T-Roc","Tiguan","Touareg","Transporter","up!","Vento",
+  ],
+  "BMW": [
+    "1 Series","1M","2 Series","3 Series","4 Series","5 Series","6 Series",
+    "7 Series","8 Series","Gran Turismo (GT)","i3","i4","i5","i7","i8",
+    "iX","iX1","iX2","iX3","M2","M3","M4","M5","M6","M8","M Coupe/Roadster",
+    "X1","X2","X3","X3M","X4","X4M","X5","X5M","X6","X6M","X7","XM","Z3","Z4","Z8",
+  ],
+  "Mercedes-Benz": [
+    "190-Class","A-Class","AMG GT","B-Class","C-Class","CL-Class","CLA-Class",
+    "CLE-Class","CLK-Class","CLS-Class","E-Class","EQA","EQB","EQC","EQE","EQS",
+    "G-Class","GL-Class","GLA-Class","GLB-Class","GLC-Class","GLE-Class",
+    "GLK-Class","GLS-Class","M-Class","R-Class","S-Class","SEL/SEC",
+    "SL-Class","SLC-Class","SLK-Class","SLR","SLS AMG","Sprinter","V-Class",
+  ],
+  "Audi": [
+    "80","90","100","A1","A3","A4","A5","A6","A6 e-tron","A7","A8",
+    "Allroad Quattro","e-tron","e-tron GT","Q2","Q3","Q4 e-tron","Q5",
+    "Q6 e-tron","Q7","Q8","Q8 e-tron","R8","RS3","RS4","RS5","RS6",
+    "RS7","RS e-tron GT","RSQ8","S3","S4","S5","S6","S6 e-tron","S7",
+    "S8","S e-tron GT","SQ5","SQ6 e-tron","SQ7","SQ8","SQ8 e-tron",
+    "TT","TTRS","TTS","V8",
+  ],
+  "Aston Martin": ["DB11","DB12","DB7","DB9","DBS","DBX","Rapide","Vanquish","Vantage","Virage"],
+  "BYD": ["Atto 3","Dolphin","e6","Seal","Sealion 7"],
+  "Ferrari": ["296","308","328","348","360","456","458","488","512 TR","550","575M","599","612","812","Amalfi","California","Enzo Ferrari","F12 Berlinetta","F355","F40","F430","F50","F8","FF","GTC4 Lusso","LaFerrari","LC","Portofino","Purosangue","Roma","SF90","12Cilindri"],
+  "Fiat": ["124","500","500L","500X","Barchetta","Coupe","Croma","Ducato","Freemont","Lancia","Multipla","Panda","Punto"],
+  "Ford": ["Bronco","Contour","E-Series","Econoline","EcoSport","Escape","Expedition","Explorer","Explorer Sport Trac","F-150","F-250","F-350","Fiesta","Five Hundred","Flex","Focus","Freestyle","Fusion","GT","Kuga","Mondeo","Mustang","Probe","Ranger","S-MAX","Taurus","Thunderbird","Transit","Windstar"],
+  "Honda": ["Accord","Beat","CR-V","CR-Z","Civic","Crossroad","Crosstour","Del Sol","Element","Fit","Fit Aria","Freed","HR-V","Insight","Inspire","Integra","Legend","Life","N-BOX","N-ONE","Odyssey","Passport","Pilot","Prelude","Ridgeline","S2000","S660","Stepwgn","Stream","That's"],
+  "Hyundai": [],
+  "Jaguar": ["Daimler","E-PACE","E-TYPE","F-PACE","F-TYPE","I-PACE","S-TYPE","Sovereign","XE","XF","XJ","XJ-6","XJ-8","XJ-C","XJR","XJS","XK","XK8","XKR","X-TYPE"],
+  "Jeep": ["Avenger","Cherokee","CJ","Commander","Compass","Gladiator","Patriot","Renegade","Wrangler"],
+  "Kia": ["Avella","Bisto","Bongo III Minibus","Brisa","Capital","Carens","Carnival","Carstar","Ceed","Cerato","Concord","Credos","Delta","Elan","Enterprise","EV3","EV4","EV5","EV6","EV9","Fiat 132","Forte","K3","K5","K7","K8","K9","Mohave","Morning","Niro","Opirus","Optima","Parktown","Potentia","Pregio","Pride","PV5","Ray","Regal","Retona","Rio","Roche","Rocsta","Seltos","Sephia","Shuma","Sorento","Soul","Spectra","Sportage","Stinger","Stonic","Tasman","Telluride","Topic","Towner","Vesta","X-TREK"],
+  "Lexus": ["CT200h","ES","GS","GX","IS","LC","LM","LS","LX","NX","RC","RX","RZ","SC","UX"],
+  "Mazda": ["AZ-1","CX-3","CX-5","CX-7","CX-9","Demio","Flare Crossover","Mazda 3","Mazda 5","Mazda 6","Millenia","MPV","MX-3","MX-5 Miata","MX-6","Protégé","RX-7","RX-8","Viante","Yunos","626"],
+  "Nissan": ["180SX","200SX","240SX","280ZX","300ZX","350Z","370Z","Altima","Armada","Bluebird","Bluebird Sylphy","Cedric","Cefiro","Cima","Cube","Elgrand","Figaro","Frontier","Fuga","GT-R","Juke","Lafesta","Laurel","Leaf","Maxima","Moco","Murano","Note","NV","Pao","Pathfinder","Prairie","President","Pulsar","Qashqai","Quest","Rogue","Sentra","Serena","Silvia","Skyline","Stagea","Teana","Titan","Versa","Wingroad","X-Trail","Xterra"],
+  "Peugeot": [],
+  "Porsche": ["718","911","928","944","968","Boxster","Carrera GT","Cayenne","Cayman","Macan","Panamera","Taycan"],
+  "Renault": ["Alpine","Clio","Laguna","Megane","Talisman"],
+  "Renault Samsung": ["Arkana","Captur","Clio","Filante","Koleos","Master","QM3","QM5","QM6","Scenic","SM3","SM5","SM6","SM7","Twizy","XM3","ZOE"],
+  "Smart": ["Forfour","Fortwo","Roadster"],
+  "Suzuki": ["Alto","Alto Lapin","Cappuccino","Grand Vitara","Hustler","Ignis","Jimny","Sidekick","Spacia","Swift","Twin","Wagon R","X-90"],
+  "Tesla": ["Cybertruck","Model 3","Model S","Model X","Model Y"],
+  "Toyota": ["4Runner","86","Alphard","Altezza","Aristo","Avalon","bB","C-HR","Cami","Camry","Carina","Celica","Celsior","Chaser","Corona","Corolla","Corsa","Crown","Esquire","Estima","FJ Cruiser","Fun Cargo","Gaia","Harrier","Hiace","Highlander","Hilux Surf","iQ","Ipsum","Isis","ist","Land Cruiser","Mark II","Mark X","Matrix","MR-2","MR-S","Noah","Passo","Pickup","Porte","Premio","Previa","Prius","Ractis","Raum","RAV4","Roomy","Sequoia","Sera","Sienna","Sienta","Soarer","Solara","Supra","Tacoma","Tundra","Vellfire","Venza","Verso","Vista","Vitz","WiLL","Wish","Xtra Cab","Yaris"],
+  "Volvo": ["740","760","850","940","960","C30","C40","C70","EX30","EX40","S40","S60","S70","S80","S90","V40","V50","V60","V70","V90","XC40","XC60","XC70","XC90"]
+};
+
+const topBrands = ["BMW", "Mercedes-Benz", "Audi", "Volkswagen", "Toyota"];
+const sortedKeys = Object.keys(brandModels).sort();
+const allBrands = [
+  ...topBrands,
+  ...sortedKeys.filter((brand) => !topBrands.includes(brand))
+];
+
 export default function CarsPage() {
+  const [selectedBrand, setSelectedBrand] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const models = selectedBrand ? brandModels[selectedBrand] : [];
+
   const horizontalCars = [
     {
       img: "/images/listing-1.png",
@@ -62,58 +127,204 @@ export default function CarsPage() {
         {/* SIDEBAR */}
         <aside className={styles.filtersSidebar}>
           <div className={styles.filterHeader}>
-            <h2 className={styles.filterTitle}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="4" y1="21" x2="4" y2="14"></line>
-                <line x1="4" y1="10" x2="4" y2="3"></line>
-                <line x1="12" y1="21" x2="12" y2="12"></line>
-                <line x1="12" y1="8" x2="12" y2="3"></line>
-                <line x1="20" y1="21" x2="20" y2="16"></line>
-                <line x1="20" y1="12" x2="20" y2="3"></line>
-                <line x1="1" y1="14" x2="7" y2="14"></line>
-                <line x1="9" y1="8" x2="15" y2="8"></line>
-                <line x1="17" y1="16" x2="23" y2="16"></line>
-              </svg>
-              Filters
-            </h2>
-            <button className={styles.clearFilters}>Clear all</button>
+            <h2 className={styles.filterTitle}>Detajet</h2>
+            <button className={styles.closeSidebarBtn}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
           </div>
 
-          {[
-            { icon: "car", label: "Make, Model, Trim" },
-            { icon: "layout", label: "Body type" },
-            { icon: "calendar", label: "Registration" },
-            { icon: "award", label: "Vehicle condition" },
-            { icon: "droplet", label: "Fuel type" },
-            { icon: "dollar-sign", label: "Price" },
-            { icon: "trending-up", label: "Mileage (km)" },
-            { icon: "settings", label: "Transmission type" }
-          ].map((item, idx) => (
-            <div key={idx} className={`${styles.accordionItem} ${item.label === 'Body type' ? styles.active : ''}`}>
-              <div className={styles.accordionIconTitle}>
-                <span className={styles.accordionIcon}>
-                  {/* Just rendering a generic placeholder icon visually resembling the ones in the screenshot */}
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle>
-                  </svg>
-                </span>
-                {item.label}
-              </div>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 18 15 12 9 6"></polyline>
-              </svg>
+          <div className={styles.filterBody}>
+            {/* Prodhuesi */}
+            <div className={styles.inputGroup}>
+              <label className={styles.inputLabel}>Prodhuesi</label>
+              <select 
+                className={styles.inputSelect} 
+                value={selectedBrand}
+                onChange={(e) => {
+                  setSelectedBrand(e.target.value);
+                  setSelectedModel("");
+                }}
+              >
+                <option value="" disabled>Zgjedh..</option>
+                {allBrands.map((brand) => (
+                  <option key={brand} value={brand}>{brand}</option>
+                ))}
+              </select>
+              <span className={styles.selectArrow}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </span>
             </div>
-          ))}
+
+            {/* Modeli */}
+            <div className={styles.inputGroup}>
+              <label className={styles.inputLabel}>Modeli</label>
+              <select 
+                className={styles.inputSelect} 
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                disabled={!selectedBrand || models.length === 0}
+              >
+                <option value="" disabled>Zgjedh..</option>
+                {models.map((model) => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
+              </select>
+              <span className={styles.selectArrow}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </span>
+            </div>
+
+            {/* Lloji i Modelit */}
+            <div className={styles.inputGroup}>
+              <label className={styles.inputLabel}>Lloji i Modelit</label>
+              <select className={styles.inputSelect} defaultValue="Të gjitha">
+                <option value="Të gjitha">Të gjitha</option>
+              </select>
+              <span className={styles.selectArrow}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </span>
+            </div>
+
+            {/* Viti */}
+            <div className={styles.filterSection}>
+              <h3 className={styles.sectionTitle}>Viti</h3>
+              <div className={styles.rowInputs}>
+                <div className={styles.inputGroup}>
+                  <label className={styles.inputLabel}>Nga</label>
+                  <select className={styles.inputSelect} defaultValue="">
+                    <option value="" disabled>Zgjedh..</option>
+                    {Array.from({length: 35}, (_, i) => 2024 - i).map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                  <span className={styles.selectArrow}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </span>
+                </div>
+                <div className={styles.inputGroup}>
+                  <label className={styles.inputLabel}>Deri në</label>
+                  <select className={styles.inputSelect} defaultValue="">
+                    <option value="" disabled>Zgjedh..</option>
+                    {Array.from({length: 35}, (_, i) => 2024 - i).map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                  <span className={styles.selectArrow}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Kilometrazhi */}
+            <div className={styles.filterSection}>
+              <h3 className={styles.sectionTitle}>Kilometrazhi</h3>
+              <div className={styles.rowInputs}>
+                <div className={styles.inputGroup}>
+                  <label className={styles.inputLabel}>Nga</label>
+                  <select className={styles.inputSelect} defaultValue="">
+                    <option value="" disabled>Zgjedh..</option>
+                    <option value="0">0 km</option>
+                    <option value="10000">10,000 km</option>
+                    <option value="20000">20,000 km</option>
+                    <option value="50000">50,000 km</option>
+                    <option value="100000">100,000 km</option>
+                    <option value="200000">200,000 km</option>
+                  </select>
+                  <span className={styles.selectArrow}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </span>
+                </div>
+                <div className={styles.inputGroup}>
+                  <label className={styles.inputLabel}>Deri në</label>
+                  <select className={styles.inputSelect} defaultValue="">
+                    <option value="" disabled>Zgjedh..</option>
+                    <option value="10000">10,000 km</option>
+                    <option value="20000">20,000 km</option>
+                    <option value="50000">50,000 km</option>
+                    <option value="100000">100,000 km</option>
+                    <option value="200000">200,000 km</option>
+                    <option value="500000">500,000 km</option>
+                  </select>
+                  <span className={styles.selectArrow}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Çmimi */}
+            <div className={styles.filterSection}>
+              <h3 className={styles.sectionTitle}>Çmimi</h3>
+              <div className={styles.rowInputs}>
+                <div className={styles.inputGroup}>
+                  <label className={styles.inputLabel}>Nga</label>
+                  <select className={styles.inputSelect} defaultValue="">
+                    <option value="" disabled>Zgjedh..</option>
+                    <option value="500">€500</option>
+                    <option value="1000">€1,000</option>
+                    <option value="5000">€5,000</option>
+                    <option value="10000">€10,000</option>
+                    <option value="20000">€20,000</option>
+                    <option value="50000">€50,000</option>
+                  </select>
+                  <span className={styles.selectArrow}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </span>
+                </div>
+                <div className={styles.inputGroup}>
+                  <label className={styles.inputLabel}>Deri në</label>
+                  <select className={styles.inputSelect} defaultValue="">
+                    <option value="" disabled>Zgjedh..</option>
+                    <option value="5000">€5,000</option>
+                    <option value="10000">€10,000</option>
+                    <option value="20000">€20,000</option>
+                    <option value="50000">€50,000</option>
+                    <option value="100000">€100,000</option>
+                  </select>
+                  <span className={styles.selectArrow}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Karburanti */}
+            <div className={styles.filterSection}>
+              <h3 className={styles.sectionTitle}>Karburanti</h3>
+              <div className={styles.checkboxList}>
+                <label className={styles.checkboxLabel}><input type="checkbox"/> <span className={styles.checkmark}></span> Naftë</label>
+                <label className={styles.checkboxLabel}><input type="checkbox"/> <span className={styles.checkmark}></span> Benzinë</label>
+                <label className={styles.checkboxLabel}><input type="checkbox"/> <span className={styles.checkmark}></span> Hibrid</label>
+                <label className={styles.checkboxLabel}><input type="checkbox"/> <span className={styles.checkmark}></span> Elektrik</label>
+                <label className={styles.checkboxLabel}><input type="checkbox"/> <span className={styles.checkmark}></span> Hidrogjen</label>
+              </div>
+            </div>
+
+            {/* Motori */}
+            <div className={styles.filterSection}>
+              <h3 className={styles.sectionTitle}>Motori</h3>
+              <div className={styles.inputGroup}>
+                <label className={styles.inputLabel}>Madhësia e motorit</label>
+                <select className={styles.inputSelect} defaultValue="">
+                  <option value="" disabled>Zgjedh..</option>
+                </select>
+                <span className={styles.selectArrow}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </span>
+              </div>
+            </div>
+          </div>
         </aside>
 
         {/* MAIN RESULTS */}
         <main className={styles.mainContent}>
           <div className={styles.resultsHeader}>
             <div className={styles.resultsCount}>
-              <strong>406,509 Offers</strong> for your search
+              <strong>406,509 Oferta</strong> për kërkimin tuaj
             </div>
             <div className={styles.sortWrapper}>
-              Sort: <select defaultValue="best"><option value="best">Best results</option><option value="price">Price</option></select>
+              Rëndit: <select defaultValue="best"><option value="best">Rezultatet më të mira</option><option value="price">Çmimi</option></select>
             </div>
           </div>
 

@@ -302,19 +302,58 @@ export default function SearchHero() {
               <select className={styles.selectField} defaultValue="" onChange={() => setHasFilters(true)}>
                 <option value="" disabled>Kilometrazhi nga</option>
                 <option>0 km</option>
+                <option>10,000 km</option>
+                <option>20,000 km</option>
+                <option>30,000 km</option>
+                <option>40,000 km</option>
                 <option>50,000 km</option>
+                <option>60,000 km</option>
+                <option>70,000 km</option>
+                <option>80,000 km</option>
+                <option>90,000 km</option>
                 <option>100,000 km</option>
+                <option>110,000 km</option>
+                <option>120,000 km</option>
+                <option>130,000 km</option>
+                <option>140,000 km</option>
                 <option>150,000 km</option>
+                <option>160,000 km</option>
+                <option>170,000 km</option>
+                <option>180,000 km</option>
+                <option>190,000 km</option>
+                <option>200,000 km</option>
+                <option>250,000 km</option>
+                <option>300,000 km</option>
+                <option>500,000 km</option>
               </select>
               <span className={styles.selectArrow}>▾</span>
             </div>
             <div className={styles.selectWrapper}>
               <select className={styles.selectField} defaultValue="" onChange={() => setHasFilters(true)}>
                 <option value="" disabled>Kilometrazhi deri në</option>
+                <option>10,000 km</option>
+                <option>20,000 km</option>
+                <option>30,000 km</option>
+                <option>40,000 km</option>
                 <option>50,000 km</option>
+                <option>60,000 km</option>
+                <option>70,000 km</option>
+                <option>80,000 km</option>
+                <option>90,000 km</option>
                 <option>100,000 km</option>
+                <option>110,000 km</option>
+                <option>120,000 km</option>
+                <option>130,000 km</option>
+                <option>140,000 km</option>
                 <option>150,000 km</option>
+                <option>160,000 km</option>
+                <option>170,000 km</option>
+                <option>180,000 km</option>
+                <option>190,000 km</option>
                 <option>200,000 km</option>
+                <option>250,000 km</option>
+                <option>300,000 km</option>
+                <option>500,000 km</option>
               </select>
               <span className={styles.selectArrow}>▾</span>
             </div>
@@ -336,6 +375,17 @@ export default function SearchHero() {
                 <option value="" disabled>Transmisioni</option>
                 <option>Automatike</option>
                 <option>Manuale</option>
+              </select>
+              <span className={styles.selectArrow}>▾</span>
+            </div>
+          </div>
+
+          <div className={styles.searchRow}>
+            <div className={styles.selectWrapper} style={{ flex: "0 0 calc(50% - 6px)" }}>
+              <select className={styles.selectField} defaultValue="" onChange={() => setHasFilters(true)}>
+                <option value="" disabled>Tërheqja</option>
+                <option>2WD</option>
+                <option>4WD</option>
               </select>
               <span className={styles.selectArrow}>▾</span>
             </div>

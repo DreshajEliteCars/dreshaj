@@ -1,0 +1,170 @@
+.container {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 60px 16px;
+  min-height: 60vh;
+}
+
+.pageTitle {
+  font-size: 32px;
+  font-weight: 800;
+  color: #111;
+  margin-bottom: 40px;
+  text-align: center;
+  letter-spacing: -0.5px;
+}
+
+.section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  margin-bottom: 32px;
+}
+
+.sectionTitle {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #f5a623;
+  display: inline-block;
+}
+
+/* Procedures Styles */
+.stepsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 32px;
+}
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.step:last-child {
+  border-bottom: none;
+}
+
+.stepNumber {
+  background: #f5a623;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.stepContent {
+  font-size: 16px;
+  color: #333;
+  line-height: 1.5;
+}
+
+.infoBox {
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-left: 3px solid #f5a623;
+  padding: 20px;
+  border-radius: 4px;
+  color: #333;
+  font-size: 15px;
+  line-height: 1.6;
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+/* Warranty Table Styles */
+.tableContainer {
+  overflow-x: auto;
+}
+
+.warrantyTable {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.warrantyTable th,
+.warrantyTable td {
+  padding: 16px;
+  border-bottom: 1px solid #eee;
+}
+
+.warrantyTable th {
+  background: #f9f9f9;
+  font-weight: 600;
+  color: #555;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.warrantyTable tr:last-child td {
+  border-bottom: none;
+}
+
+.warrantyTable tr:hover td {
+  background: #fafafa;
+}
+
+.itemTitle {
+  font-weight: 600;
+  color: #222;
+}
+
+.itemDesc {
+  color: #666;
+  font-size: 15px;
+}
+
+.statusCovered {
+  color: #28a745;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.statusNotCovered {
+  color: #dc3545;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.disclaimer {
+  margin-top: 24px;
+  font-size: 14px;
+  color: #888;
+  font-style: italic;
+}
+
+@media (max-width: 768px) {
+  .section {
+    padding: 24px 16px;
+  }
+  
+  .step {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .warrantyTable th,
+  .warrantyTable td {
+    padding: 12px;
+  }
+}

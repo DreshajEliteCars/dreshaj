@@ -26,6 +26,7 @@ export default function Header() {
           </nav>
         </div>
         <div className={styles.headerRight}>
+          <Link href="/garancioni" className={styles.garancionButton}>Garancion</Link>
           <div className={styles.langSelector} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <select 
               value={language}

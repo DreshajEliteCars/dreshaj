@@ -34,51 +34,96 @@
   gap: 12px;
 }
 
-.clearFilters {
-  font-size: 14px;
-  color: var(--color-primary-default);
-  background: none;
+.closeSidebarBtn {
+  background: #f8f9fa;
   border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.filterBody {
+  padding: 0 24px 24px;
+}
+
+.inputGroup {
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.inputLabel {
+  display: block;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin-bottom: 6px;
   font-weight: 500;
 }
 
-.accordionItem {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--color-border);
-  cursor: pointer;
-  font-weight: 600;
+.inputSelect {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  appearance: none;
+  font-size: 15px;
   color: var(--color-text-primary);
-  background: white;
-  transition: background 0.2s;
+  background-color: white;
+  cursor: pointer;
 }
 
-.accordionItem:hover {
-  background: #f8f9fa;
-}
-
-.accordionItem svg {
-  width: 18px;
-  height: 18px;
-}
-
-.accordionIconTitle {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.accordionIcon {
+.selectArrow {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  pointer-events: none;
   color: var(--color-text-and-icon-muted);
 }
 
-.accordionItem.active {
-  background: #f8f9fa;
-  border-left: 3px solid var(--color-primary-default);
-  padding-left: 21px;
+.filterSection {
+  margin-top: 24px;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 16px;
+}
+
+.rowInputs {
+  display: flex;
+  gap: 12px;
+}
+.rowInputs .inputGroup {
+  flex: 1;
+}
+
+.checkboxList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.checkboxLabel input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
 }
 
 /* MAIN CONTENT AREA */
