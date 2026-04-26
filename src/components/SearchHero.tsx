@@ -78,7 +78,7 @@ export default function SearchHero() {
                   Kërko
                 </button>
                 {hasFilters && (
-                  <button 
+                  <button
                     style={{
                       background: 'none',
                       border: 'none',
@@ -116,8 +116,8 @@ export default function SearchHero() {
       </section>
 
       {/* ===== ADVANCED SEARCH MODAL ===== */}
-      <div 
-        className={styles.modalOverlay} 
+      <div
+        className={styles.modalOverlay}
         style={{ display: showAdvanced ? "flex" : "none" }}
         onClick={() => setShowAdvanced(false)}
       >
@@ -128,7 +128,7 @@ export default function SearchHero() {
               &times;
             </button>
           </div>
-          
+
           <div className={styles.searchRow}>
             <div className={styles.selectWrapper}>
               <select className={styles.selectField} defaultValue="" onChange={() => setHasFilters(true)}>
@@ -175,7 +175,7 @@ export default function SearchHero() {
 
           <div style={{ marginTop: '24px', display: 'flex', gap: '16px', justifyContent: 'flex-end', alignItems: 'center' }}>
             {hasFilters && (
-              <button 
+              <button
                 style={{
                   background: 'none',
                   border: 'none',
