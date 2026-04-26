@@ -28,8 +28,6 @@
 .logo {
   display: flex;
   align-items: center;
-  margin-left: -48px;
-  /* Pulling significantly left to counteract PNG internal layout and align visually with the SVG below */
 }
 
 .logoAuto {
@@ -378,7 +376,7 @@
   background: var(--color-surface-default);
   border-radius: var(--border-radius-m);
   padding: 16px 20px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 
 .demandTitle {
@@ -436,7 +434,7 @@
   background: var(--color-surface-default);
   border-radius: var(--border-radius-m);
   padding: 16px 20px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -506,7 +504,7 @@
 }
 
 .listingCard:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
   transform: translateY(-2px);
 }
 
@@ -527,7 +525,7 @@
   position: absolute;
   top: 8px;
   left: 8px;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0,0,0,0.6);
   color: #fff;
   font-size: 9px;
   padding: 2px 6px;
@@ -565,7 +563,6 @@
 /* RESPONSIVE                 */
 /* ========================= */
 @media (max-width: 860px) {
-
   .searchBox,
   .mainContent {
     max-width: 100%;
@@ -591,7 +588,6 @@
 }
 
 @media (max-width: 600px) {
-
   .searchRow,
   .searchRow2 {
     flex-direction: column;
@@ -705,8 +701,9 @@
 .footerBottom {
   padding: 24px 0;
   border-top: 1px solid var(--color-stroke-divider);
-  font-size: var(--scr-font-size-xs);
-  color: var(--color-text-and-icon-muted);
+  font-size: 13px;
+  color: #888;
+  text-align: center;
 }
 
 /* ========================= */
