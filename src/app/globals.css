@@ -59,6 +59,20 @@
   --button-primary-hover-bg-color: #173db4;
   --button-primary-color: #fff;
 
+  /* Aliases used by the /cars + detail pages. The components reference
+     these names (--color-primary-default, --radius-md, etc.); without
+     the definitions below every "primary blue" element silently fell
+     back to transparent, which is why CTA buttons rendered as white-
+     on-white. */
+  --color-primary-default: #076fe6;
+  --color-border: #e5e7eb;
+  --color-text-primary: #1f2937;
+  --color-text-secondary: #6b7280;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
   /* Spacing */
   --spacing-xs: 8px;
   --spacing-s: 12px;
@@ -90,6 +104,7 @@ body {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   letter-spacing: 0px;
+  zoom: 1.25;
 }
 
 a {

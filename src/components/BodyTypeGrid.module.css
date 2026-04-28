@@ -1,8 +1,10 @@
 .bodyTypeSection { padding: 24px 0 16px; }
 .sectionTitle { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 16px; }
 .bodyTypeGrid { display: flex; gap: 8px; justify-content: space-between; }
-.bodyTypeItem { display: flex; flex-direction: column; align-items: center; cursor: pointer; padding: 8px; border-radius: 8px; transition: background-color 0.2s; flex: 1; }
-.bodyTypeItem:hover { background-color: #e8e8e8; }
+.bodyTypeItem { display: flex; flex-direction: column; align-items: center; cursor: pointer; padding: 8px; border-radius: 8px; transition: background-color 0.15s ease, transform 0.15s ease; flex: 1; color: inherit; text-decoration: none; }
+.bodyTypeItem:hover { background-color: #e8e8e8; transform: translateY(-1px); }
+.bodyTypeItem:active { transform: translateY(0); }
+.bodyTypeItem:focus-visible { outline: 2px solid var(--color-primary-default); outline-offset: 2px; }
 .bodyTypeIcon { width: 80px; height: 48px; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
 .bodyTypeIcon img { width: auto; height: 100%; max-width: 72px; max-height: 40px; object-fit: contain; }
 .bodyTypeLabel { font-size: 11px; color: #333; text-align: center; white-space: nowrap; }

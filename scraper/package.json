@@ -1,0 +1,18 @@
+{
+  "name": "dreshaj-scraper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "encar.com -> Supabase scraper for the Dreshaj car listings.",
+  "main": "scraper.js",
+  "scripts": {
+    "sync": "node scraper.js",
+    "test:api": "node test-api.mjs",
+    "test:dry": "node dry-run.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "https-proxy-agent": "^7.0.5"
+  }
+}

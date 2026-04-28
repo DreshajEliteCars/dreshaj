@@ -1,35 +1,387 @@
+/**
+ * Encar.com → Supabase scraper.
+ *
+ * Pulls car listings from the public encar.com search API, normalizes them
+ * to the flat shape used by the Next.js app (see src/lib/cars.ts and
+ * supabase/migrations/0001_create_cars.sql), then upserts them into the
+ * `cars` table. Listings that disappear from Encar are removed.
+ *
+ * One row per listing. All photos are stored inline as `images: text[]`.
+ *
+ * Required environment variables:
+ *   SUPABASE_URL           - project URL
+ *   SUPABASE_KEY           - service-role key (writes bypass RLS)
+ *
+ * Optional:
+ *   SCRAPER_TARGETS                  - comma-separated aliases (overrides carlist.txt)
+ *   SCRAPER_PAGE_SIZE                - default 500
+ *   SCRAPER_TIMEOUT_MS               - default 15000
+ *   SCRAPER_MAX_RETRIES              - default 3
+ *   SCRAPER_PRICE_MARKUP_EUR         - default 400
+ *   SCRAPER_MAX_LISTINGS_PER_MAKE    - cap per make (disables deletion safeguard)
+ *
+ * CLI:
+ *   node scraper/scraper.js                    # use carlist.txt
+ *   node scraper/scraper.js bmw porsche        # specific aliases
+ */
+
 const axios = require('axios');
-const crypto = require('crypto');
+const https = require('https');
 const fs = require('fs/promises');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const {
+  translate,
+  translateRegion,
+  reportUnmappedFragments,
+} = require('./translations');
 require('dotenv').config();
+
+// -----------------------------------------------------------------------------
+// Configuration
+// -----------------------------------------------------------------------------
 
 const CARLIST_PATH = path.join(__dirname, 'carlist.txt');
 const ENCAR_SEARCH_URL = 'https://api.encar.com/search/car/list/general';
-const EXCHANGE_RATE_URL = 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/krw.json';
+const ENCAR_DETAIL_URL = 'https://api.encar.com/v1/readside/vehicle';
 
-const REQUEST_TIMEOUT_MS = parsePositiveInt(process.env.SCRAPER_TIMEOUT_MS) || 15000;
+// How many detail requests to keep in flight at once. With cookie session
+// + browser headers + HTTP keep-alive, 5 sustains ~10 RPS without
+// tipping Encar's WAF — empirically: 8 still trips it on the next list
+// page after a burst, 5 stays comfortably under. Tune via env var.
+const DETAIL_CONCURRENCY =
+  parsePositiveInt(process.env.SCRAPER_DETAIL_CONCURRENCY) || 5;
+const EXCHANGE_RATE_URL = 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/krw.json';
+const ENCAR_IMAGE_HOST = 'https://ci.encar.com';
+
+// 30 s lets us absorb residential / static proxy latency without
+// false-positive timeouts. Tune via SCRAPER_TIMEOUT_MS for direct mode.
+const REQUEST_TIMEOUT_MS = parsePositiveInt(process.env.SCRAPER_TIMEOUT_MS) || 30000;
 const PAGE_SIZE = parsePositiveInt(process.env.SCRAPER_PAGE_SIZE) || 500;
-const MAX_RETRIES = parsePositiveInt(process.env.SCRAPER_MAX_RETRIES) || 3;
+// Five retries with exponential backoff lets us absorb the occasional
+// Encar timeout / 502 mid-pagination instead of bailing on the bucket.
+const MAX_RETRIES = parsePositiveInt(process.env.SCRAPER_MAX_RETRIES) || 5;
 const PRICE_MARKUP_EUR = parsePositiveInt(process.env.SCRAPER_PRICE_MARKUP_EUR) || 400;
 const FALLBACK_KRW_TO_EUR_RATE = 0.00069;
 const UPSERT_CHUNK_SIZE = 250;
 const DELETE_CHUNK_SIZE = 250;
 const SELECT_PAGE_SIZE = 1000;
 
-const ENCAR_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  Referer: 'https://www.encar.com/',
-  Origin: 'https://www.encar.com',
-  Accept: 'application/json, text/plain, */*',
-  'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+// Encar's API stops paginating reliably after ~10k unique results per query,
+// so when a make exceeds this we slice the query into year buckets.
+// 9000 leaves a comfortable margin under the cap.
+const SLICING_THRESHOLD = 9000;
+
+// Kosovo customs rule: cars older than 10 years cannot be imported. Kept
+// as currentYear - 11 so the cutoff auto-shifts each new year (e.g. in
+// 2026 the floor is 2015, in 2027 it becomes 2016). Override at runtime
+// with SCRAPER_MIN_YEAR if business rules change.
+const MIN_REGISTRATION_YEAR =
+  parsePositiveInt(process.env.SCRAPER_MIN_YEAR) || new Date().getFullYear() - 11;
+const NEWEST_YEAR_BUCKET = new Date().getFullYear() + 1;
+const OLDEST_YEAR_BUCKET = MIN_REGISTRATION_YEAR;
+
+// yyyymm endpoints used wherever we need the absolute query window.
+const MIN_YEAR_MM = MIN_REGISTRATION_YEAR * 100 + 1;
+const MAX_YEAR_MM = NEWEST_YEAR_BUCKET * 100 + 12;
+
+// Per-make minimum reasonable retail price (EUR). Listings whose computed
+// price falls below the floor are treated as "price unknown" instead of
+// shipping a wildly wrong number. Lets the UI fall back to "Kontakto për
+// çmimin" rather than e.g. a €1,500 Ferrari.
+//
+// Floors are deliberately conservative — better to nullify a real cheap
+// listing than ship a bogus one. Korean OEMs use a low floor because
+// genuinely old, high-mileage Korean sedans sell for €500-1000.
+const PRICE_FLOOR_EUR_DEFAULT = 700;
+
+// Skip-if-fresh window: rows in our DB whose `updated_at` is younger
+// than this threshold are considered "still valid" and we skip the
+// detail-endpoint round-trip for them. The list endpoint still
+// confirms the listing exists (so the deletion safeguard works
+// correctly); we just don't re-download photos/specs we already have.
+//
+// Default 6h aligns with the 6-hour cron schedule — back-to-back
+// runs (e.g. a manual run after a crash) become almost free, while
+// a fresh nightly run sees everything as stale and re-enriches.
+// Set SCRAPER_SKIP_FRESH_HOURS=0 to disable.
+const SKIP_FRESH_HOURS = (() => {
+  const raw = process.env.SCRAPER_SKIP_FRESH_HOURS;
+  if (raw === '0') return 0;
+  const parsed = parsePositiveInt(raw);
+  return parsed ?? 6;
+})();
+const PRICE_FLOOR_EUR_BY_MAKE = {
+  // Premium / sports / luxury — anything below these is clearly wrong.
+  'Ferrari': 50000,
+  'Aston Martin': 25000,
+  'Porsche': 8000,
+  'Maybach': 25000,
+  'Rolls-Royce': 50000,
+  'Lamborghini': 50000,
+  'Bentley': 25000,
+  // Premium sedans — we want to be a bit conservative.
+  'Mercedes-Benz': 2000,
+  'BMW': 2000,
+  'Audi': 2000,
+  'Lexus': 2500,
+  'Jaguar': 2500,
+  'Land Rover': 3000,
+  'Tesla': 8000,
+  // Mainstream Japanese / European
+  'Volvo': 1500,
+  'Toyota': 1200,
+  'Honda': 1200,
+  'Nissan': 1000,
+  'Mazda': 1000,
+  'Ford': 1200,
+  'Fiat': 1000,
+  'Peugeot': 1000,
+  'Volkswagen': 1500,
+  'Smart': 1000,
+  // Korean OEMs — keep floor low; legit cheap cars exist.
+  'Hyundai': 600,
+  'Kia': 600,
+  'Renault Korea': 600,
+  // Niche
+  'BYD': 5000,
+  'Suzuki': 1000,
+  'Jeep': 2000,
 };
 
-const http = axios.create({
-  timeout: REQUEST_TIMEOUT_MS,
-  headers: ENCAR_HEADERS,
-});
+function getPriceFloorEur(makeCanonical) {
+  return PRICE_FLOOR_EUR_BY_MAKE[makeCanonical] ?? PRICE_FLOOR_EUR_DEFAULT;
+}
+
+// Headers chosen to closely match what Chrome 122 sends. Encar's WAF
+// returns HTTP 407 for clients that look "too automated" (no cookies,
+// missing sec-* headers, suspicious User-Agent), so we go out of our
+// way to look like a real browser session.
+const ENCAR_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+    '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Accept-Encoding': 'gzip, deflate, br',
+  Referer: 'https://www.encar.com/',
+  Origin: 'https://www.encar.com',
+  // Client hints / Fetch metadata — modern Chrome always sends these.
+  'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
+  'sec-fetch-dest': 'empty',
+  'sec-fetch-mode': 'cors',
+  'sec-fetch-site': 'same-site',
+};
+
+// ---- Client pool (one entry per proxy + cookie jar) -----------------------
+//
+// Each pool entry is a self-contained "browser session": its own axios
+// instance, its own cookie jar, its own bootstrap state. Round-robin
+// across the pool spreads our request load over multiple proxy IPs
+// while keeping each session's cookies tied to one IP (sharing
+// cookies across IPs is itself a bot-detection signal).
+//
+// When no proxies are configured (proxy.txt missing/empty), the pool
+// has a single direct-connection entry — behaviour identical to the
+// previous single-client implementation.
+
+const { HttpsProxyAgent } = require('https-proxy-agent');
+const { loadProxies, describeProxy } = require('./proxies');
+
+function createEncarClient(proxyUrl) {
+  const agent = proxyUrl
+    ? new HttpsProxyAgent(proxyUrl, {
+        keepAlive: true,
+        keepAliveMsecs: 30_000,
+        maxSockets: 8,
+        maxFreeSockets: 4,
+      })
+    : new https.Agent({
+        keepAlive: true,
+        keepAliveMsecs: 30_000,
+        maxSockets: 8,
+        maxFreeSockets: 4,
+        scheduling: 'lifo',
+      });
+
+  const client = {
+    proxyUrl,
+    agent,
+    cookieJar: new Map(),
+    bootstrapped: false,
+    consecutiveFailures: 0,
+    cooldownUntil: 0,
+    label: proxyUrl ? describeProxy(proxyUrl) : 'direct',
+    instance: null, // populated below
+  };
+
+  client.instance = axios.create({
+    timeout: REQUEST_TIMEOUT_MS,
+    headers: ENCAR_HEADERS,
+    httpsAgent: agent,
+    proxy: false, // we handle the proxy via the agent
+  });
+
+  // Per-client cookie interceptors.
+  client.instance.interceptors.request.use((config) => {
+    const cookie = buildCookieHeaderFor(client);
+    if (cookie) config.headers.Cookie = cookie;
+    return config;
+  });
+  client.instance.interceptors.response.use(
+    (response) => {
+      harvestCookiesInto(client, response.headers?.['set-cookie']);
+      return response;
+    },
+    (error) => {
+      harvestCookiesInto(client, error.response?.headers?.['set-cookie']);
+      return Promise.reject(error);
+    }
+  );
+
+  return client;
+}
+
+function harvestCookiesInto(client, setCookieHeaders) {
+  if (!setCookieHeaders) return;
+  const list = Array.isArray(setCookieHeaders)
+    ? setCookieHeaders
+    : [setCookieHeaders];
+  for (const sc of list) {
+    if (typeof sc !== 'string') continue;
+    const [pair] = sc.split(';');
+    const eq = pair.indexOf('=');
+    if (eq <= 0) continue;
+    const name = pair.slice(0, eq).trim();
+    const value = pair.slice(eq + 1).trim();
+    if (name) client.cookieJar.set(name, value);
+  }
+}
+
+function buildCookieHeaderFor(client) {
+  if (client.cookieJar.size === 0) return null;
+  return Array.from(client.cookieJar.entries())
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ');
+}
+
+const clientPool = []; // populated by initClientPool
+let clientCursor = 0;
+const PROXY_FAILURE_LIMIT = 3;
+const PROXY_COOLDOWN_MS = 60_000;
+
+async function initClientPool() {
+  if (clientPool.length) return clientPool;
+  let proxies = [];
+  try {
+    proxies = await loadProxies();
+  } catch (error) {
+    console.warn(`Proxy load failed: ${error.message}`);
+  }
+  if (proxies.length) {
+    for (const proxy of proxies) clientPool.push(createEncarClient(proxy));
+    console.log(
+      `Loaded ${proxies.length} proxy${proxies.length === 1 ? '' : 's'}: ` +
+        proxies.map(describeProxy).join(', ')
+    );
+  } else {
+    clientPool.push(createEncarClient(null));
+    console.log('No proxies configured — using direct connection.');
+  }
+  return clientPool;
+}
+
+/** Pick the next healthy client (round-robin, skips cooled-down clients). */
+function pickClient() {
+  if (clientPool.length === 0) {
+    throw new Error('Client pool not initialised. Call initClientPool() first.');
+  }
+  const now = Date.now();
+  for (let i = 0; i < clientPool.length; i += 1) {
+    const c = clientPool[(clientCursor + i) % clientPool.length];
+    if (c.cooldownUntil <= now) {
+      clientCursor = (clientCursor + i + 1) % clientPool.length;
+      return c;
+    }
+  }
+  // Everyone's cooling down — pick the one closest to recovery.
+  const earliest = [...clientPool].sort((a, b) => a.cooldownUntil - b.cooldownUntil)[0];
+  return earliest;
+}
+
+function markClientHealthy(client) {
+  client.consecutiveFailures = 0;
+}
+
+function markClientFailed(client) {
+  client.consecutiveFailures += 1;
+  if (client.consecutiveFailures >= PROXY_FAILURE_LIMIT) {
+    client.cooldownUntil = Date.now() + PROXY_COOLDOWN_MS;
+    console.warn(
+      `Client ${client.label} cooled down for ${PROXY_COOLDOWN_MS / 1000}s ` +
+        `after ${client.consecutiveFailures} consecutive failures.`
+    );
+    client.consecutiveFailures = 0;
+  }
+}
+
+/**
+ * Visit encar.com's homepage + a search page through THIS client to
+ * acquire its own session cookies. Idempotent unless force=true.
+ */
+async function bootstrapClient(client, { force = false } = {}) {
+  if (!force && client.bootstrapped) return;
+  if (force) client.cookieJar.clear();
+
+  const browseHeaders = {
+    Accept:
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+    'sec-fetch-dest': 'document',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'none',
+    'sec-fetch-user': '?1',
+    'Upgrade-Insecure-Requests': '1',
+  };
+
+  try {
+    await client.instance.get('https://www.encar.com/', {
+      headers: browseHeaders,
+      maxRedirects: 5,
+      validateStatus: () => true,
+    });
+    await client.instance.get(
+      'https://www.encar.com/dc/dc_carsearchlist.do?carType=for',
+      {
+        headers: {
+          ...browseHeaders,
+          'sec-fetch-site': 'same-origin',
+          Referer: 'https://www.encar.com/',
+        },
+        maxRedirects: 5,
+        validateStatus: () => true,
+      }
+    );
+    client.bootstrapped = true;
+    console.log(
+      `Session bootstrapped via ${client.label} (${client.cookieJar.size} cookies).`
+    );
+  } catch (error) {
+    console.warn(
+      `Session bootstrap via ${client.label} failed: ${error.message}`
+    );
+  }
+}
+
+/** Bootstrap every client in the pool sequentially. */
+async function bootstrapSession({ force = false } = {}) {
+  await initClientPool();
+  for (const client of clientPool) {
+    await bootstrapClient(client, { force });
+  }
+}
 
 const TARGET_MAKES = [
   { key: 'benz', canonicalName: 'Mercedes-Benz', queryManufacturer: '벤츠', aliases: ['benz', 'mercedes', 'mercedes benz', 'mercedes-benz'] },
@@ -65,87 +417,38 @@ for (const target of TARGET_MAKES) {
   }
 }
 
-const supabase = createClient(
-  requireEnv('SUPABASE_URL'),
-  requireEnv('SUPABASE_KEY')
-);
+const SOURCE = 'encar';
+
+// -----------------------------------------------------------------------------
+// Supabase
+// -----------------------------------------------------------------------------
+
+// Lazily-initialised so the module can be imported (and pure helpers
+// exercised) without Supabase env vars set.
+let _supabase = null;
+function getSupabase() {
+  if (_supabase) return _supabase;
+  _supabase = createClient(
+    requireEnv('SUPABASE_URL'),
+    requireEnv('SUPABASE_KEY'),
+    { auth: { persistSession: false } }
+  );
+  return _supabase;
+}
+
+// -----------------------------------------------------------------------------
+// Generic helpers
+// -----------------------------------------------------------------------------
 
 function requireEnv(name) {
   const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
 }
 
 function parsePositiveInt(value) {
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function normalizeAlias(value) {
-  return String(value || '')
-    .toLowerCase()
-    .trim()
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function cleanText(value) {
-  return String(value || '').trim();
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function isRetriableError(error) {
-  const status = error.response?.status;
-  if (!status) {
-    return true;
-  }
-
-  return [408, 429, 500, 502, 503, 504].includes(status);
-}
-
-function describeHttpError(error) {
-  if (error.response) {
-    return `HTTP ${error.response.status}`;
-  }
-
-  return error.message;
-}
-
-async function getWithRetry(url, config, label) {
-  let lastError;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
-    try {
-      return await http.get(url, config);
-    } catch (error) {
-      lastError = error;
-      if (attempt >= MAX_RETRIES || !isRetriableError(error)) {
-        break;
-      }
-
-      const delay = 500 * (2 ** (attempt - 1)) + Math.floor(Math.random() * 250);
-      console.warn(`${label} failed (${describeHttpError(error)}). Retrying in ${delay}ms...`);
-      await sleep(delay);
-    }
-  }
-
-  throw new Error(`${label} failed after ${MAX_RETRIES} attempts: ${describeHttpError(lastError)}`);
-}
-
-function createSearchRange(offset, limit) {
-  return `|ModifiedDate|${offset}|${limit}`;
-}
-
-function createManufacturerQuery(queryManufacturer) {
-  return `(And.Hidden.N._.CarType.A._.Manufacturer.${queryManufacturer}.)`;
 }
 
 function toInteger(value) {
@@ -158,105 +461,28 @@ function toFiniteNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function extractYear(item) {
-  const formYear = toInteger(item.FormYear);
-  if (formYear) {
-    return formYear;
-  }
-
-  const rawYear = cleanText(item.Year);
-  if (rawYear.length >= 4) {
-    const parsed = toInteger(rawYear.slice(0, 4));
-    if (parsed) {
-      return parsed;
-    }
-  }
-
-  return null;
+function cleanText(value) {
+  return String(value || '').trim();
 }
 
-function createStableNumericId(scope, parts) {
-  const seed = `${scope}:${parts.join('|')}`;
-  const hex = crypto.createHash('sha1').update(seed).digest('hex').slice(0, 15);
-  return BigInt(`0x${hex}`).toString();
+function normalizeAlias(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function normalizeFuel(rawFuel) {
-  const source = cleanText(rawFuel);
-
-  if (!source) {
-    return { id: 99, name: 'E panjohur' };
-  }
-
-  if (source.includes('플러그인 하이브리드') && source.includes('디젤')) {
-    return { id: 6, name: 'Plug-in Hibrid (Dizel)' };
-  }
-
-  if (source.includes('플러그인 하이브리드') && source.includes('가솔린')) {
-    return { id: 5, name: 'Plug-in Hibrid (Benzin)' };
-  }
-
-  if (source.includes('하이브리드') && source.includes('디젤')) {
-    return { id: 6, name: 'Hibrid (Dizel)' };
-  }
-
-  if (source.includes('하이브리드') && source.includes('가솔린')) {
-    return { id: 5, name: 'Hibrid (Benzin)' };
-  }
-
-  if (source.includes('전기')) {
-    return { id: 2, name: 'Elektrike' };
-  }
-
-  if (source.includes('LPG')) {
-    return { id: 3, name: 'LPG' };
-  }
-
-  if (source.includes('디젤')) {
-    return { id: 1, name: 'Dizel' };
-  }
-
-  if (source.includes('가솔린')) {
-    return { id: 4, name: 'Benzin' };
-  }
-
-  if (source.includes('수소')) {
-    return { id: 99, name: 'Hidrogjen' };
-  }
-
-  return { id: 99, name: source };
-}
-
-function buildImageUrls(item) {
-  const urls = [];
-
-  if (Array.isArray(item.Photos)) {
-    for (const photo of item.Photos) {
-      if (photo?.location) {
-        urls.push(`https://ci.encar.com${photo.location}`);
-      }
-    }
-  }
-
-  if (!urls.length && item.Photo) {
-    urls.push(`https://ci.encar.com${item.Photo}001.jpg`);
-  }
-
-  return Array.from(new Set(urls));
-}
-
-function convertKrwToEuro(originalPriceKrw, exchangeRate) {
-  if (originalPriceKrw === null) {
-    return null;
-  }
-
-  return Math.round((originalPriceKrw * exchangeRate) + PRICE_MARKUP_EUR);
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function chunkArray(items, chunkSize) {
   const chunks = [];
-  for (let index = 0; index < items.length; index += chunkSize) {
-    chunks.push(items.slice(index, index + chunkSize));
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
   }
   return chunks;
 }
@@ -265,22 +491,653 @@ function uniqueItems(items) {
   return Array.from(new Set(items));
 }
 
+// -----------------------------------------------------------------------------
+// HTTP retry + Encar pagination
+// -----------------------------------------------------------------------------
+
+function isRetriableError(error) {
+  const status = error.response?.status;
+  // Network-level errors (no status, ECONNRESET, EAI_AGAIN, etc.) — retriable.
+  if (!status) return true;
+  // 407/429 are rate-limiter style; 5xx are transient server errors;
+  // 408 is request timeout. All retriable.
+  return [407, 408, 429, 500, 502, 503, 504].includes(status);
+}
+
+function isConnectionResetError(error) {
+  // Network-level errors with no HTTP status. Encar's edge sometimes
+  // drops the TCP connection (ECONNRESET) instead of returning 407 when
+  // it wants us to slow down — same WAF, different signal.
+  if (error.response) return false;
+  const code = error.code || error.cause?.code;
+  return ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE'].includes(code);
+}
+
+function isRateLimitError(error) {
+  const status = error.response?.status;
+  // Treat connection-level errors AND 407/429 as rate-limit signals so we
+  // back off significantly longer than a normal 5xx.
+  if (!status) return true;
+  return status === 407 || status === 429;
+}
+
+function describeHttpError(error) {
+  if (error.response) return `HTTP ${error.response.status}`;
+  return error.message;
+}
+
+// Refresh every client's session. Used by the circuit breaker after a
+// global cooldown — single-flight so concurrent callers share the work.
+let _refreshing = null;
+async function refreshAllSessions() {
+  if (_refreshing) return _refreshing;
+  _refreshing = bootstrapSession({ force: true })
+    .catch((e) => console.warn(`Session refresh failed: ${e.message}`))
+    .finally(() => {
+      _refreshing = null;
+    });
+  return _refreshing;
+}
+
+// ---- Circuit breaker -------------------------------------------------------
+// When too many requests fail in a short window (rate limit, ECONNRESET burst,
+// 407 storm), all in-flight callers wait on a single shared cooldown promise.
+// This stops the death spiral where every concurrent worker piles up retries.
+const ERROR_BURST_THRESHOLD = 6;          // errors within ERROR_BURST_WINDOW_MS
+const ERROR_BURST_WINDOW_MS = 30_000;
+const COOLDOWN_MS = 60_000;
+let _errorTimestamps = [];
+let _cooldownPromise = null;
+
+function recordWafLikeError() {
+  const now = Date.now();
+  _errorTimestamps = _errorTimestamps.filter(
+    (t) => now - t < ERROR_BURST_WINDOW_MS
+  );
+  _errorTimestamps.push(now);
+  if (
+    _errorTimestamps.length >= ERROR_BURST_THRESHOLD &&
+    !_cooldownPromise
+  ) {
+    _cooldownPromise = (async () => {
+      console.warn(
+        `Circuit breaker tripped (${_errorTimestamps.length} errors in ` +
+          `${ERROR_BURST_WINDOW_MS / 1000}s). Cooling down ${COOLDOWN_MS / 1000}s and ` +
+          'refreshing the Encar session…'
+      );
+      await sleep(COOLDOWN_MS);
+      _errorTimestamps = [];
+      try {
+        await refreshAllSessions();
+      } catch {
+        /* already logged */
+      }
+      console.warn('Circuit breaker resumed.');
+    })().finally(() => {
+      _cooldownPromise = null;
+    });
+  }
+  return _cooldownPromise;
+}
+
+async function getWithRetry(url, config, label) {
+  // Lazy-initialise the proxy pool on first use so callers don't need
+  // to remember to call initClientPool() themselves. After the first
+  // request, this returns instantly (clientPool already has entries).
+  if (clientPool.length === 0) await initClientPool();
+  // If a global cooldown is in progress, wait for it before doing anything.
+  if (_cooldownPromise) await _cooldownPromise;
+
+  let lastError;
+  let lastClient = null;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+    // Pick a (potentially different) client per attempt so failures on
+    // one proxy automatically retry on a different IP.
+    const client = pickClient();
+    lastClient = client;
+    try {
+      const response = await client.instance.get(url, config);
+      markClientHealthy(client);
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= MAX_RETRIES || !isRetriableError(error)) break;
+
+      const status = error.response?.status;
+
+      // Track WAF-like signals in the circuit breaker. Both HTTP 407
+      // (explicit WAF block) and ECONNRESET-family errors (TCP-level
+      // pacing punishment) count.
+      if (status === 407 || isConnectionResetError(error)) {
+        markClientFailed(client);
+        const cooldown = recordWafLikeError();
+        if (cooldown) await cooldown;
+      }
+
+      // 407 specifically: the session on THIS client is probably expired
+      // or flagged. Re-bootstrap just that client.
+      if (status === 407 && attempt === 1) {
+        console.warn(
+          `${label}: 407 via ${client.label} — refreshing that client's session…`
+        );
+        await bootstrapClient(client, { force: true });
+      }
+
+      // Rate-limit signals get a bigger backoff (5s → 10s → 20s → 40s → 80s
+      // capped). Other transients use the lighter 0.5s → 8s curve.
+      const baseMs = isRateLimitError(error) ? 5000 : 500;
+      const delay = baseMs * 2 ** (attempt - 1) + Math.floor(Math.random() * 500);
+      console.warn(
+        `${label} failed (${describeHttpError(error)}). ` +
+        `Retrying in ${(delay / 1000).toFixed(1)}s [attempt ${attempt}/${MAX_RETRIES}]...`
+      );
+      await sleep(delay);
+    }
+  }
+  throw new Error(`${label} failed after ${MAX_RETRIES} attempts: ${describeHttpError(lastError)}`);
+}
+
+function createSearchRange(offset, limit) {
+  return `|ModifiedDate|${offset}|${limit}`;
+}
+
+/**
+ * Build an Encar `q=` query.
+ *
+ * Always includes:
+ *   - Hidden.N            : exclude hidden listings.
+ *   - CarType.A           : include all body types.
+ *   - ServiceCopyCar.ORIGINAL : drop dealer-syndicated DUPLICATION rows. Without
+ *                          this, ~45% of returned listings are duplicates of the
+ *                          same physical car re-posted by partner dealers, which
+ *                          would inflate the inventory and pollute search results.
+ *   - SellType.일반        : retail only — excludes auctions (경매),
+ *                          leases (리스), short/long-term rentals.
+ *
+ * @param {string} queryManufacturer - Korean manufacturer name (e.g. '벤츠').
+ * @param {{from:number, to:number}|null} yearRange - inclusive yyyymm range
+ *        (e.g. { from: 202001, to: 202412 }). Use null for "no slice".
+ */
+function createManufacturerQuery(queryManufacturer, yearRange = null) {
+  // Always cap the year window at MIN_REGISTRATION_YEAR. When the caller
+  // passes a narrower range (year-bucket slicing), use that range
+  // directly — but clamp its lower bound to MIN_YEAR_MM defensively.
+  const range = yearRange
+    ? { from: Math.max(yearRange.from, MIN_YEAR_MM), to: yearRange.to }
+    : { from: MIN_YEAR_MM, to: MAX_YEAR_MM };
+
+  const parts = [
+    'Hidden.N',
+    'CarType.A',
+    `Manufacturer.${queryManufacturer}`,
+    'ServiceCopyCar.ORIGINAL',
+    'SellType.일반',
+    `Year.range(${range.from}..${range.to})`,
+  ];
+  return `(And.${parts.join('._.')}.)`;
+}
+
+async function fetchCount(target, yearRange = null) {
+  const response = await getWithRetry(
+    ENCAR_SEARCH_URL,
+    {
+      params: {
+        count: 'true',
+        q: createManufacturerQuery(target.queryManufacturer, yearRange),
+        sr: createSearchRange(0, 1),
+      },
+    },
+    `${target.canonicalName} count${yearRange ? ` (${yearRange.from}..${yearRange.to})` : ''}`
+  );
+  return toInteger(response.data?.Count) || 0;
+}
+
+/**
+ * Enumerate year buckets that each fit under SLICING_THRESHOLD. Uses
+ * recursive bisection: starts with the full year span, and any bucket
+ * whose count is over the threshold is split in half until either the
+ * count fits or the bucket is a single month.
+ *
+ * Returns an array of { from, to, count } in yyyymm form.
+ */
+async function enumerateYearBuckets(target) {
+  const totalFrom = OLDEST_YEAR_BUCKET * 100 + 1;       // e.g. 199501
+  const totalTo = NEWEST_YEAR_BUCKET * 100 + 12;        // e.g. 202712
+  const result = [];
+
+  async function recurse(from, to) {
+    const range = { from, to };
+    const count = await fetchCount(target, range);
+    if (count === 0) return;
+    if (count <= SLICING_THRESHOLD || from === to) {
+      result.push({ from, to, count });
+      return;
+    }
+    const mid = midpointYyyymm(from, to);
+    if (mid === to) {
+      // Can't split further; accept the over-cap bucket. We'll still
+      // try to scrape it but flag a warning.
+      result.push({ from, to, count, overCap: true });
+      return;
+    }
+    await recurse(from, mid);
+    await recurse(addMonth(mid, 1), to);
+  }
+
+  await recurse(totalFrom, totalTo);
+  return result;
+}
+
+// yyyymm helpers --------------------------------------------------------------
+
+function yyyymmToMonths(yyyymm) {
+  const y = Math.floor(yyyymm / 100);
+  const m = yyyymm % 100;
+  return y * 12 + (m - 1);
+}
+
+function monthsToYyyymm(totalMonths) {
+  const y = Math.floor(totalMonths / 12);
+  const m = (totalMonths % 12) + 1;
+  return y * 100 + m;
+}
+
+function addMonth(yyyymm, deltaMonths) {
+  return monthsToYyyymm(yyyymmToMonths(yyyymm) + deltaMonths);
+}
+
+function midpointYyyymm(from, to) {
+  const a = yyyymmToMonths(from);
+  const b = yyyymmToMonths(to);
+  if (b <= a) return from;
+  return monthsToYyyymm(Math.floor((a + b) / 2));
+}
+
+// -----------------------------------------------------------------------------
+// Domain-specific normalization
+// -----------------------------------------------------------------------------
+
+/**
+ * Maps Encar's Korean fuel labels to the values used by the UI filters in
+ * src/components/SearchHero.tsx and src/app/cars/page.tsx.
+ */
+function normalizeFuelType(rawFuel) {
+  const source = cleanText(rawFuel);
+  if (!source) return null;
+
+  // Plug-in / hybrid combinations resolve to "Hibrid".
+  if (source.includes('하이브리드') || source.includes('+전기') || source.includes('+ 전기')) {
+    return 'Hibrid';
+  }
+  if (source.includes('전기')) return 'Elektrik';
+  if (source.includes('디젤')) return 'Diesel';
+  if (source.includes('가솔린')) return 'Petrol';
+  if (source.includes('LPG')) return 'LPG';
+  if (source.includes('수소')) return 'Hidrogjen';
+  return source; // unknown — preserve raw so we can extend the map later
+}
+
+/**
+ * Encar's `Year` is yyyymm (e.g. 202305). FormYear is just yyyy.
+ * Returns { year, month } where month may be null.
+ */
+function extractRegistration(item) {
+  const rawYear = cleanText(item.Year);
+  if (rawYear.length >= 6) {
+    const year = toInteger(rawYear.slice(0, 4));
+    const month = toInteger(rawYear.slice(4, 6));
+    if (year) {
+      return {
+        year,
+        month: month && month >= 1 && month <= 12 ? month : null,
+      };
+    }
+  }
+  const formYear = toInteger(item.FormYear);
+  if (formYear) return { year: formYear, month: null };
+  return { year: null, month: null };
+}
+
+function buildImageUrls(item) {
+  const urls = [];
+  if (Array.isArray(item.Photos)) {
+    for (const photo of item.Photos) {
+      if (photo?.location) urls.push(`${ENCAR_IMAGE_HOST}${photo.location}`);
+    }
+  }
+  if (!urls.length && item.Photo) {
+    urls.push(`${ENCAR_IMAGE_HOST}${item.Photo}001.jpg`);
+  }
+  return uniqueItems(urls);
+}
+
+// ---------------------------------------------------------------------------
+// Detail endpoint: enrich each listing with its full photo gallery and the
+// fields that the search/list endpoint never returns (body type, gearbox,
+// engine displacement, color, exact price, dealer info).
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the full detail document for one Encar vehicle ID.
+ * Returns the parsed JSON or null if the listing has been removed.
+ */
+async function fetchVehicleDetail(sourceId) {
+  try {
+    const response = await getWithRetry(
+      `${ENCAR_DETAIL_URL}/${encodeURIComponent(sourceId)}`,
+      { headers: { Referer: 'https://fem.encar.com/' } },
+      `Detail ${sourceId}`
+    );
+    return response.data || null;
+  } catch (error) {
+    // 404s are expected for listings that disappeared between list and
+    // detail fetch — treat as missing rather than fatal.
+    if (error.message.includes('HTTP 404')) return null;
+    throw error;
+  }
+}
+
+// Map Encar's Korean transmission name to the UI's value set.
+function normalizeTransmission(rawName) {
+  const text = cleanText(rawName);
+  if (!text) return null;
+  if (/오토|자동|automatic|cvt|dct|dsg/i.test(text)) return 'Automatik';
+  if (/수동|manual|매뉴얼/i.test(text)) return 'Manual';
+  return text; // unknown — keep raw for visibility
+}
+
+// Combine every body-related signal Encar gives us (size class in
+// `spec.bodyName`, model name, trim/grade) and bucket the listing into
+// one of the UI's body-type filter values: SUV, Sedan, Kupe, Kabriolet,
+// Furgon, Hatchback, Wagon. Returns null if nothing matches.
+function inferBodyType({ bodyName, modelName, gradeName }) {
+  const haystack = [bodyName, modelName, gradeName].filter(Boolean).join(' ');
+  if (!haystack) return null;
+  // Specific shapes — match before size-class fallbacks.
+  if (/Convertible|Cabriolet|Roadster|컨버터블|카브리올레|로드스터/i.test(haystack))
+    return 'Kabriolet';
+  if (/SUV|크로스오버|RV/i.test(haystack)) return 'SUV';
+  if (/Pickup|픽업|Truck|화물|Van\b|미니밴|승합|VAN/i.test(haystack)) return 'Furgon';
+  if (/Hatchback|해치백/i.test(haystack)) return 'Hatchback';
+  if (/Wagon|Estate|Touring|왜건|에스테이트|Avant/i.test(haystack)) return 'Wagon';
+  if (/Coupe|coupé|쿠페|Coupé/i.test(haystack)) return 'Kupe';
+  if (/Sedan|세단/i.test(haystack)) return 'Sedan';
+  // Size-class fallbacks — most "size class" listings are sedans.
+  if (/스포츠카/i.test(haystack)) return 'Kupe';
+  if (/대형차|중형차|준중형차|준대형차|소형차|경차/i.test(haystack)) return 'Sedan';
+  return null;
+}
+
+/**
+ * Apply the rich detail payload back onto a row that was produced from
+ * the list endpoint. We never overwrite a non-null list value with a
+ * null detail value.
+ */
+function enrichRowWithDetail(row, detail, target, exchangeRate) {
+  if (!detail) return row;
+
+  // ---- photos: replace the 4-photo sample with the full gallery ----
+  if (Array.isArray(detail.photos) && detail.photos.length) {
+    const urls = uniqueItems(
+      detail.photos
+        .filter((p) => p?.path)
+        .map((p) => `${ENCAR_IMAGE_HOST}${p.path}`)
+    );
+    if (urls.length) {
+      row.images = urls;
+      row.image_url = urls[0];
+      row.photo_count = urls.length;
+    }
+  }
+
+  // ---- model / trim: prefer the pre-translated English names ----
+  // Encar already maintains English equivalents for most imports, so we
+  // skip our translation pipeline whenever possible.
+  const cat = detail.category || {};
+  const englishModel = cleanText(cat.modelGroupEnglishName);
+  const koreanModel = cleanText(cat.modelGroupName);
+  if (englishModel) {
+    row.model = englishModel;
+  } else if (koreanModel) {
+    row.model = translate(koreanModel);
+  }
+
+  const englishGrade = cleanText(cat.gradeEnglishName);
+  const englishGradeDetail = cleanText(cat.gradeDetailEnglishName);
+  const koreanGrade = cleanText(cat.gradeName);
+  let trim = englishGrade || (koreanGrade ? translate(koreanGrade) : null);
+  if (englishGradeDetail && englishGradeDetail !== englishGrade) {
+    trim = trim ? `${trim} ${englishGradeDetail}` : englishGradeDetail;
+  }
+  if (trim) row.trim = trim.replace(/\s+/g, ' ').trim();
+
+  // ---- body_type from combined signals ----
+  const spec = detail.spec || {};
+  const inferredBody = inferBodyType({
+    bodyName: spec.bodyName,
+    modelName: row.model,
+    gradeName: trim,
+  });
+  if (inferredBody) row.body_type = inferredBody;
+
+  // ---- transmission ----
+  if (spec.transmissionName) {
+    const tx = normalizeTransmission(spec.transmissionName);
+    if (tx) row.transmission = tx;
+  }
+
+  // ---- price: prefer the live ad price (more accurate than list cache) ----
+  const adPrice = detail.advertisement?.price;
+  if (typeof adPrice === 'number' && adPrice > 0) {
+    const refreshed = convertKrwToEuro(adPrice * 10000, exchangeRate);
+    if (refreshed != null) {
+      const floor = getPriceFloorEur(target.canonicalName);
+      row.price_eur = refreshed >= floor ? refreshed : null;
+    }
+  }
+
+  // ---- options: standard equipment codes ----
+  // Encar returns codes ("001", "014", …) on detail.options.standard.
+  // Tuning items often duplicate standard codes (e.g. "023" already
+  // appears as standard); we de-dupe and keep both as one set.
+  const optionsObj = detail.options || {};
+  const optionCodes = uniqueItems(
+    [...(optionsObj.standard || []), ...(optionsObj.tuning || [])].filter(Boolean)
+  );
+  if (optionCodes.length) row.options = optionCodes;
+
+  // ---- VIN (kept inside `raw` for now) ----
+  if (detail.vin) row.raw = { ...(row.raw || {}), vin: detail.vin };
+
+  return row;
+}
+
+/**
+ * Enrich a batch of rows in-place by fetching the detail endpoint for
+ * each. Failures are tolerated — a row whose detail request fails keeps
+ * its list-only fields. Counters are written back to `shared.meta` so
+ * we can see enrichment health in sync_runs.
+ */
+async function enrichBatchWithDetail(batchRows, target, exchangeRate, shared) {
+  if (!batchRows.length) return;
+  const startedAt = Date.now();
+  const results = await mapWithConcurrency(
+    batchRows,
+    DETAIL_CONCURRENCY,
+    async (row) => {
+      try {
+        const detail = await fetchVehicleDetail(row.source_id);
+        if (!detail) return { ok: false, gone: true };
+        enrichRowWithDetail(row, detail, target, exchangeRate);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error.message };
+      }
+    }
+  );
+  let ok = 0;
+  let gone = 0;
+  let errored = 0;
+  for (const r of results) {
+    if (r?.__error || r?.error) errored += 1;
+    else if (r?.gone) gone += 1;
+    else if (r?.ok) ok += 1;
+  }
+  shared.detailFetched = (shared.detailFetched || 0) + ok;
+  shared.detailGone = (shared.detailGone || 0) + gone;
+  shared.detailErrored = (shared.detailErrored || 0) + errored;
+  if (errored > 0) {
+    const ratio = errored / batchRows.length;
+    if (ratio > 0.2) {
+      shared.warnings.push(
+        `Detail enrichment failed for ${errored}/${batchRows.length} ` +
+        `listings in this batch (${(ratio * 100).toFixed(0)}%)`
+      );
+    }
+  }
+  const ms = Date.now() - startedAt;
+  if (ms > 0) {
+    process.stdout.write(
+      `   enriched ${ok}/${batchRows.length} in ${(ms / 1000).toFixed(1)}s\r`
+    );
+  }
+}
+
+/**
+ * Run an async worker over `items` with at most `concurrency` in flight.
+ * Mirrors a simple worker-pool pattern; results array preserves input order.
+ */
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function pullNext() {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= items.length) return;
+      try {
+        results[i] = await worker(items[i], i);
+      } catch (error) {
+        results[i] = { __error: error };
+      }
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, pullNext);
+  await Promise.all(workers);
+  return results;
+}
+
+function convertKrwToEuro(originalPriceKrw, exchangeRate) {
+  // Treat 0 / null / missing as "price on request". Encar uses Price=0 as
+  // a placeholder for listings where the seller hides the price; without
+  // this guard those listings would show up as exactly €PRICE_MARKUP_EUR.
+  if (!originalPriceKrw || originalPriceKrw <= 0) return null;
+  return Math.round(originalPriceKrw * exchangeRate + PRICE_MARKUP_EUR);
+}
+
+function buildSellerLogo(name) {
+  const text = cleanText(name);
+  if (!text) return null;
+  // First letters of up to 2 words, uppercase. e.g. "Auto World" -> "AW".
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('');
+}
+
+/**
+ * Convert one Encar listing to a row that matches public.cars.
+ * Returns { row, errors } - row is null if validation fails.
+ */
+function normalizeListing(item, target, exchangeRate) {
+  const errors = [];
+  const sourceId = cleanText(item.Id);
+  const { year, month } = extractRegistration(item);
+  const priceManwon = toInteger(item.Price);
+  const mileageKm = toInteger(item.Mileage);
+  const modelName = cleanText(item.Model);
+
+  if (!sourceId) errors.push('missing Id');
+  if (!year) errors.push('missing year');
+  if (!modelName) errors.push('missing model');
+
+  if (errors.length) return { row: null, errors };
+
+  // Encar reports Price in 만원 (man-won, ₩10,000). 0 means hidden/"call".
+  const priceKrw = priceManwon && priceManwon > 0 ? priceManwon * 10000 : null;
+  const computedPriceEur = convertKrwToEuro(priceKrw, exchangeRate);
+  const priceFloor = getPriceFloorEur(target.canonicalName);
+  const priceBelowFloor =
+    computedPriceEur != null && computedPriceEur < priceFloor;
+  // Below-floor prices are almost certainly mis-listed (test entries,
+  // dealer-internal placeholders, parts-only listings, etc.). Treat the
+  // price as unknown so the UI shows "Kontakto për çmimin".
+  const priceEur = priceBelowFloor ? null : computedPriceEur;
+
+  const images = buildImageUrls(item);
+  const rawSeller = cleanText(item.OfficeCityState) || null;
+  const sellerName = rawSeller ? translateRegion(rawSeller) : null;
+  const rawTrim = cleanText(item.Badge) || null;
+
+  const row = {
+    id: `${SOURCE}:${sourceId}`,
+    source: SOURCE,
+    source_id: sourceId,
+
+    make: target.canonicalName,
+    model: translate(modelName),
+    trim: rawTrim ? translate(rawTrim) : null,
+    body_type: null, // not available on the list endpoint
+
+    registration_year: year,
+    registration_month: month,
+
+    fuel_type: normalizeFuelType(item.FuelType),
+    transmission: null, // not available on the list endpoint
+
+    price_eur: priceEur,
+    mileage_km: mileageKm,
+    power_kw: null,
+    power_hp: null,
+
+    image_url: images[0] || null,
+    images,
+    photo_count: images.length,
+
+    seller_name: sellerName,
+    seller_address: sellerName, // Encar list only exposes city/state
+    seller_logo: buildSellerLogo(sellerName),
+
+    finance_monthly_eur: null,
+    insurance_monthly_eur: null,
+
+    // Filled in during detail-endpoint enrichment (see enrichRowWithDetail).
+    options: [],
+
+    raw: item,
+  };
+
+  return { row, errors: [], priceBelowFloor };
+}
+
+// -----------------------------------------------------------------------------
+// Target resolution (carlist.txt / SCRAPER_TARGETS / CLI args)
+// -----------------------------------------------------------------------------
+
 async function loadRequestedAliases(options = {}) {
   if (Array.isArray(options.targetAliases) && options.targetAliases.length) {
     return options.targetAliases;
   }
-
   const envAliases = cleanText(process.env.SCRAPER_TARGETS);
   if (envAliases) {
-    return envAliases.split(',').map(alias => alias.trim()).filter(Boolean);
+    return envAliases.split(',').map((a) => a.trim()).filter(Boolean);
   }
-
   const filePath = options.carListPath || CARLIST_PATH;
   const content = await fs.readFile(filePath, 'utf8');
-
   return content
     .split(/\r?\n/)
-    .map(line => line.trim())
+    .map((line) => line.trim())
     .filter(Boolean);
 }
 
@@ -296,11 +1153,7 @@ async function loadTargetManufacturers(options = {}) {
       unknownAliases.push(alias);
       continue;
     }
-
-    if (seenKeys.has(target.key)) {
-      continue;
-    }
-
+    if (seenKeys.has(target.key)) continue;
     seenKeys.add(target.key);
     targets.push(target);
   }
@@ -308,145 +1161,52 @@ async function loadTargetManufacturers(options = {}) {
   if (!targets.length) {
     throw new Error('No supported makes were resolved from carlist.txt or SCRAPER_TARGETS.');
   }
-
   return { requestedAliases, targets, unknownAliases };
 }
 
 async function fetchExchangeRate() {
+  // The exchange rate comes from a public CDN, not Encar — it has no
+  // reason to consume a slot on our Encar proxy pool, and it doesn't
+  // need cookies or browser fingerprint headers either. Plain axios.
   try {
-    const response = await getWithRetry(EXCHANGE_RATE_URL, {}, 'Exchange rate request');
+    const response = await axios.get(EXCHANGE_RATE_URL, {
+      timeout: 10000,
+      headers: { 'User-Agent': 'dreshaj-scraper/1.0' },
+    });
     const rate = toFiniteNumber(response.data?.krw?.eur);
-    if (!rate || rate <= 0) {
-      throw new Error('Invalid exchange rate payload');
-    }
-
+    if (!rate || rate <= 0) throw new Error('Invalid exchange rate payload');
     console.log(`Live exchange rate: 1 KRW = ${rate} EUR`);
     return rate;
   } catch (error) {
-    console.warn(`Falling back to static exchange rate (${FALLBACK_KRW_TO_EUR_RATE}) because ${error.message}`);
+    console.warn(`Falling back to static exchange rate (${FALLBACK_KRW_TO_EUR_RATE}): ${error.message}`);
     return FALLBACK_KRW_TO_EUR_RATE;
   }
 }
 
-function normalizeListing(item, target, exchangeRate) {
-  const errors = [];
-  const vehicleId = toInteger(item.Id);
-  const year = extractYear(item);
-  const priceUnits = toInteger(item.Price);
-  const mileageKm = toFiniteNumber(item.Mileage);
+// -----------------------------------------------------------------------------
+// Per-make pagination
+// -----------------------------------------------------------------------------
 
-  if (!vehicleId) {
-    errors.push('missing vehicle id');
-  }
-
-  if (!year) {
-    errors.push('missing year');
-  }
-
-  if (!cleanText(item.Model)) {
-    errors.push('missing model');
-  }
-
-  if (errors.length) {
-    return { car: null, errors };
-  }
-
-  const modelName = cleanText(item.Model);
-  const badgeName = cleanText(item.Badge);
-  const manufacturerId = createStableNumericId('manufacturer', [target.canonicalName]);
-  const modelId = createStableNumericId('model', [target.canonicalName, modelName]);
-  const fuel = normalizeFuel(item.FuelType);
-  const originalPriceKrw = priceUnits === null ? null : priceUnits * 10000;
-  const imageUrls = buildImageUrls(item);
-
-  return {
-    car: {
-      id: vehicleId,
-      title: [target.canonicalName, modelName, badgeName].filter(Boolean).join(' '),
-      year,
-      manufacturer: {
-        id: manufacturerId,
-        name: target.canonicalName,
-      },
-      model: {
-        id: modelId,
-        name: modelName,
-      },
-      fuel,
-      lots: [
-        {
-          lot: String(vehicleId),
-          buy_now: convertKrwToEuro(originalPriceKrw, exchangeRate),
-          created_at: null,
-          odometer: {
-            km: mileageKm,
-            mi: mileageKm === null ? null : Math.round(mileageKm * 0.621371),
-            status: { name: 'actual', id: 1 },
-          },
-          images: {
-            normal: imageUrls.length ? [imageUrls[0]] : [],
-            big: imageUrls,
-          },
-          details: {
-            engine_volume: null,
-            original_price: originalPriceKrw,
-          },
-          status: { name: 'sale', id: 3 },
-        },
-      ],
-    },
-    errors: [],
-  };
-}
-
-async function fetchManufacturerCount(target) {
-  const response = await getWithRetry(
-    ENCAR_SEARCH_URL,
-    {
-      params: {
-        count: 'true',
-        q: createManufacturerQuery(target.queryManufacturer),
-        sr: createSearchRange(0, 1),
-      },
-    },
-    `${target.canonicalName} count request`
-  );
-
-  return toInteger(response.data?.Count) || 0;
-}
-
-async function fetchManufacturerCars(target, options = {}) {
+// Walks pagination for a single query bucket (optionally narrowed by year
+// range) and feeds rows into the shared accumulator. Mutates `shared`.
+async function _walkBucket(target, yearRange, options, shared) {
   const pageSize = options.pageSize || PAGE_SIZE;
   const exchangeRate = options.exchangeRate || FALLBACK_KRW_TO_EUR_RATE;
-  const maxListingsPerMake = parsePositiveInt(options.maxListingsPerMake) || null;
-  const onCarsBatch = typeof options.onCarsBatch === 'function' ? options.onCarsBatch : null;
-  const seenLotIds = new Set();
-  const cars = [];
-  const warnings = [];
-  const validationSamples = [];
-  const query = createManufacturerQuery(target.queryManufacturer);
-
-  let initialCount = null;
-  let finalCount = null;
-  let duplicateCount = 0;
-  let skippedListings = 0;
-  let normalizedCount = 0;
-  let pageFailures = 0;
+  const onRowsBatch = options.onRowsBatch;
+  const remaining = options.remaining; // () => number | Infinity
+  const query = createManufacturerQuery(target.queryManufacturer, yearRange);
   let offset = 0;
-  let targetCount = null;
+  let bucketAdded = 0;
+  let bucketCount = null;
+  // Snapshot pageFailures so the 3-strikes rule applies per-bucket, not
+  // across the whole make.
+  shared.pageFailuresAtBucketStart = shared.pageFailures;
 
   while (true) {
-    if (targetCount !== null && offset >= targetCount) {
-      break;
-    }
+    const cap = remaining ? remaining() : Infinity;
+    if (cap <= 0) return { bucketAdded, bucketCount };
 
-    const limit = targetCount === null
-      ? pageSize
-      : Math.min(pageSize, targetCount - offset);
-
-    if (limit <= 0) {
-      break;
-    }
+    const limit = Math.min(pageSize, cap);
 
     let response;
     try {
@@ -459,155 +1219,415 @@ async function fetchManufacturerCars(target, options = {}) {
             sr: createSearchRange(offset, limit),
           },
         },
-        `${target.canonicalName} listings @${offset}`
+        `${target.canonicalName} listings${yearRange ? ` ${yearRange.from}..${yearRange.to}` : ''} @${offset}`
       );
     } catch (error) {
-      pageFailures += 1;
-      warnings.push(`Failed to fetch listings at offset ${offset}: ${error.message}`);
-      break;
+      shared.pageFailures += 1;
+      shared.warnings.push(
+        `Failed at offset ${offset}${yearRange ? ` (${yearRange.from}..${yearRange.to})` : ''}: ${error.message}`
+      );
+      // After 3 consecutive page failures in this bucket, give up — the
+      // server is clearly unhappy and we should not hammer it. The
+      // overall sync still succeeds with whatever we already saved; the
+      // next scheduled run picks up where we left off.
+      if (shared.pageFailures - shared.pageFailuresAtBucketStart >= 3) {
+        shared.warnings.push(
+          `Aborting bucket${yearRange ? ` ${yearRange.from}..${yearRange.to}` : ''} after 3 page failures.`
+        );
+        return { bucketAdded, bucketCount };
+      }
+      // Otherwise skip this page and try the next offset. We lose the
+      // listings on this single page but keep the bucket alive.
+      console.warn(
+        `   skipping offset ${offset}, advancing to ${offset + limit}…`
+      );
+      offset += limit;
+      await sleep(2000); // small breather before pushing on
+      continue;
     }
 
     const data = response.data || {};
     const results = Array.isArray(data.SearchResults) ? data.SearchResults : [];
+    if (bucketCount === null) bucketCount = toInteger(data.Count) || 0;
+    if (!results.length) return { bucketAdded, bucketCount };
 
-    if (initialCount === null) {
-      initialCount = toInteger(data.Count) || results.length;
-      targetCount = maxListingsPerMake === null
-        ? initialCount
-        : Math.min(initialCount, maxListingsPerMake);
-      console.log(`[${target.canonicalName}] Found ${initialCount} listings${maxListingsPerMake ? `, limiting to ${targetCount}` : ''}.`);
+    const batchRows = [];
+    const sizeBefore = shared.seenSourceIds.size;
+
+    // Pre-pass: collect candidate IDs so we can ask the DB which ones
+    // are already fresh and skip detail enrichment for them.
+    const candidateIds = [];
+    for (const item of results) {
+      const id = cleanText(item.Id);
+      if (id && !shared.seenSourceIds.has(id)) candidateIds.push(id);
     }
-
-    if (!results.length) {
-      break;
-    }
-
-    const batchCars = [];
-    const uniqueCountBeforePage = seenLotIds.size;
+    const freshIds =
+      options.skipFreshHours && options.skipFreshHours > 0
+        ? await fetchFreshSourceIds(candidateIds, options.skipFreshHours)
+        : new Set();
 
     for (const item of results) {
-      const lotId = cleanText(item.Id);
-      if (!lotId) {
-        skippedListings += 1;
-        if (validationSamples.length < 5) {
-          validationSamples.push('listing without Id');
+      const sourceId = cleanText(item.Id);
+      if (!sourceId) {
+        shared.skippedListings += 1;
+        if (shared.validationSamples.length < 5) shared.validationSamples.push('listing without Id');
+        continue;
+      }
+
+      if (shared.seenSourceIds.has(sourceId)) {
+        shared.duplicateCount += 1;
+        continue;
+      }
+      shared.seenSourceIds.add(sourceId);
+
+      // Skip-if-fresh: the DB already has a recent copy of this row,
+      // so we don't need to refetch the detail endpoint or upsert.
+      // We still added to seenSourceIds, so the deletion safeguard
+      // continues to know the listing exists.
+      if (freshIds.has(sourceId)) {
+        shared.freshSkipped += 1;
+        if (remaining && shared.seenSourceIds.size >= shared.maxListings) break;
+        continue;
+      }
+
+      const { row, errors, priceBelowFloor } = normalizeListing(item, target, exchangeRate);
+      if (!row) {
+        shared.skippedListings += 1;
+        if (shared.validationSamples.length < 5) {
+          shared.validationSamples.push(`${sourceId}: ${errors.join(', ')}`);
         }
         continue;
       }
+      if (priceBelowFloor) shared.priceBelowFloor += 1;
 
-      if (seenLotIds.has(lotId)) {
-        duplicateCount += 1;
-        continue;
-      }
+      batchRows.push(row);
 
-      seenLotIds.add(lotId);
-
-      const { car, errors } = normalizeListing(item, target, exchangeRate);
-      if (!car) {
-        skippedListings += 1;
-        if (validationSamples.length < 5) {
-          validationSamples.push(`${lotId}: ${errors.join(', ')}`);
-        }
-        continue;
-      }
-
-      batchCars.push(car);
-
-      if (targetCount !== null && seenLotIds.size >= targetCount) {
-        break;
-      }
+      if (remaining && shared.seenSourceIds.size >= shared.maxListings) break;
     }
 
-    if (onCarsBatch && batchCars.length) {
-      await onCarsBatch(batchCars);
+    if (batchRows.length && options.enrichWithDetail !== false) {
+      await enrichBatchWithDetail(batchRows, target, exchangeRate, shared);
+    }
+
+    if (onRowsBatch && batchRows.length) {
+      await onRowsBatch(batchRows);
     } else {
-      cars.push(...batchCars);
+      shared.rows.push(...batchRows);
     }
+    shared.normalizedCount += batchRows.length;
+    bucketAdded += batchRows.length;
 
-    normalizedCount += batchCars.length;
-
-    const newUniqueListings = seenLotIds.size - uniqueCountBeforePage;
-    if (newUniqueListings === 0) {
-      warnings.push(
-        `Encar repeated an already-seen page at offset ${offset}. `
-        + 'This API appears to stop paginating reliably after roughly 10k results for a single query.'
+    if (shared.seenSourceIds.size - sizeBefore === 0) {
+      shared.warnings.push(
+        `Encar repeated an already-seen page at offset ${offset}` +
+        `${yearRange ? ` for ${yearRange.from}..${yearRange.to}` : ''}.`
       );
-      break;
+      return { bucketAdded, bucketCount };
     }
 
     offset += results.length;
+    if (results.length < limit) return { bucketAdded, bucketCount };
+    if (remaining && shared.seenSourceIds.size >= shared.maxListings) {
+      return { bucketAdded, bucketCount };
+    }
+    // Pause between pages. The previous batch just bursted ~500
+    // detail fetches; giving Encar's edge a beat before the next list
+    // call dramatically reduces 407s. 1.5s is enough.
+    await sleep(1500);
+  }
+}
 
-    if (results.length < limit) {
-      break;
+async function fetchManufacturerCars(target, options = {}) {
+  const exchangeRate = options.exchangeRate || FALLBACK_KRW_TO_EUR_RATE;
+  const maxListingsPerMake = parsePositiveInt(options.maxListingsPerMake) || null;
+
+  const shared = {
+    seenSourceIds: new Set(),
+    rows: [],
+    warnings: [],
+    validationSamples: [],
+    duplicateCount: 0,
+    skippedListings: 0,
+    normalizedCount: 0,
+    priceBelowFloor: 0,
+    freshSkipped: 0,
+    pageFailures: 0,
+    maxListings: maxListingsPerMake ?? Infinity,
+  };
+
+  // Up-front total count, used to decide on slicing and to flag underfetch.
+  let initialCount = 0;
+  try {
+    initialCount = await fetchCount(target);
+  } catch (error) {
+    shared.warnings.push(`Initial count failed: ${error.message}`);
+  }
+
+  console.log(
+    `[${target.canonicalName}] ${initialCount.toLocaleString()} listings reported` +
+    `${maxListingsPerMake ? `, capped at ${maxListingsPerMake}` : ''}.`
+  );
+
+  const remaining = () =>
+    maxListingsPerMake === null ? Infinity : maxListingsPerMake - shared.seenSourceIds.size;
+
+  // Decide on slicing. If under the threshold, single bucket with no year
+  // filter; otherwise enumerate year buckets that fit.
+  let buckets;
+  if (initialCount === 0 || initialCount <= SLICING_THRESHOLD) {
+    buckets = [null];
+  } else {
+    console.log(
+      `[${target.canonicalName}] Over ${SLICING_THRESHOLD.toLocaleString()} threshold; slicing by year…`
+    );
+    try {
+      buckets = await enumerateYearBuckets(target);
+      console.log(`[${target.canonicalName}] ${buckets.length} year buckets:`);
+      for (const b of buckets) {
+        console.log(
+          `   ${b.from}..${b.to}  ${b.count.toLocaleString()}` +
+          `${b.overCap ? '  (over cap, partial)' : ''}`
+        );
+      }
+    } catch (error) {
+      shared.warnings.push(`Year-bucket enumeration failed: ${error.message}`);
+      buckets = [null];
     }
   }
 
+  for (const bucket of buckets) {
+    if (maxListingsPerMake !== null && shared.seenSourceIds.size >= maxListingsPerMake) break;
+    await _walkBucket(
+      target,
+      bucket,
+      {
+        ...options,
+        exchangeRate,
+        remaining,
+        skipFreshHours: options.skipFreshHours ?? SKIP_FRESH_HOURS,
+      },
+      shared
+    );
+    if (bucket?.overCap) {
+      shared.warnings.push(
+        `Bucket ${bucket.from}..${bucket.to} exceeded the API cap (${bucket.count.toLocaleString()}); ` +
+        'some listings in that bucket were not fetched.'
+      );
+    }
+  }
+
+  let finalCount;
   if (maxListingsPerMake === null) {
     try {
-      finalCount = await fetchManufacturerCount(target);
+      finalCount = await fetchCount(target);
     } catch (error) {
-      warnings.push(`Failed to re-check count: ${error.message}`);
-      finalCount = initialCount || seenLotIds.size;
+      shared.warnings.push(`Failed to re-check count: ${error.message}`);
+      finalCount = initialCount || shared.seenSourceIds.size;
     }
   } else {
-    finalCount = targetCount || seenLotIds.size;
+    finalCount = Math.min(initialCount || 0, maxListingsPerMake);
   }
 
-  if (validationSamples.length) {
-    warnings.push(`Validation samples: ${validationSamples.join(' | ')}`);
+  if (shared.validationSamples.length) {
+    shared.warnings.push(`Validation samples: ${shared.validationSamples.join(' | ')}`);
+  }
+  if (finalCount > shared.seenSourceIds.size && maxListingsPerMake === null) {
+    shared.warnings.push(
+      `Fetched ${shared.seenSourceIds.size} unique listings, but Encar reported ${finalCount} total.`
+    );
   }
 
-  if (finalCount > seenLotIds.size) {
-    warnings.push(`Fetched ${seenLotIds.size} unique listings, but Encar reported ${finalCount} total listings for this make.`);
-  }
-
-  const fetchSucceeded = pageFailures === 0;
-  const deletionSafe = maxListingsPerMake === null
-    && fetchSucceeded
-    && duplicateCount === 0
-    && seenLotIds.size >= (finalCount || 0);
+  const fetchSucceeded = shared.pageFailures === 0;
+  const deletionSafe =
+    maxListingsPerMake === null &&
+    fetchSucceeded &&
+    shared.seenSourceIds.size >= (finalCount || 0);
 
   return {
-    cars,
+    rows: shared.rows,
     meta: {
       key: target.key,
       canonicalName: target.canonicalName,
       queryManufacturer: target.queryManufacturer,
       initialCount: initialCount || 0,
       finalCount: finalCount || 0,
-      fetchedListings: seenLotIds.size,
-      normalizedCars: normalizedCount,
-      skippedListings,
-      duplicateCount,
+      fetchedListings: shared.seenSourceIds.size,
+      normalizedRows: shared.normalizedCount,
+      skippedListings: shared.skippedListings,
+      priceBelowFloor: shared.priceBelowFloor,
+      freshSkipped: shared.freshSkipped,
+      detailFetched: shared.detailFetched || 0,
+      detailGone: shared.detailGone || 0,
+      detailErrored: shared.detailErrored || 0,
+      duplicateCount: shared.duplicateCount,
       fetchSucceeded,
       deletionSafe,
-      seenLotIds: Array.from(seenLotIds),
-      warnings,
+      seenSourceIds: Array.from(shared.seenSourceIds),
+      warnings: shared.warnings,
     },
   };
 }
 
+// -----------------------------------------------------------------------------
+// Supabase persistence (single `cars` table)
+// -----------------------------------------------------------------------------
+
+async function executeSupabase(query, label) {
+  const { data, error } = await query;
+  if (error) throw new Error(`${label}: ${error.message}`);
+  return data;
+}
+
+async function upsertCarRows(rows) {
+  if (!rows.length) return 0;
+  let written = 0;
+  for (const chunk of chunkArray(rows, UPSERT_CHUNK_SIZE)) {
+    await executeSupabase(
+      getSupabase().from('cars').upsert(chunk, { onConflict: 'id' }),
+      'Upsert cars'
+    );
+    written += chunk.length;
+  }
+  return written;
+}
+
+/**
+ * Look up which `source_id`s in the given list already have a row in our
+ * DB whose `updated_at` is younger than `freshHours`. These rows can
+ * skip the detail-endpoint round-trip — they're still considered
+ * present (the list endpoint just confirmed it), we just won't refresh
+ * their photos/specs.
+ *
+ * Returns an empty Set if Supabase isn't reachable, the table doesn't
+ * exist, or the freshness feature is disabled — i.e. errors fall back
+ * to "treat everything as stale" rather than crashing the run.
+ */
+async function fetchFreshSourceIds(sourceIds, freshHours) {
+  if (!freshHours || sourceIds.length === 0) return new Set();
+  const cutoff = new Date(Date.now() - freshHours * 3600 * 1000).toISOString();
+  try {
+    // Chunk to keep .in() under the URL-length safe limit.
+    const fresh = new Set();
+    for (const chunk of chunkArray(sourceIds, 500)) {
+      const { data, error } = await getSupabase()
+        .from('cars')
+        .select('source_id')
+        .eq('source', SOURCE)
+        .in('source_id', chunk)
+        .gt('updated_at', cutoff);
+      if (error) throw error;
+      for (const row of data ?? []) fresh.add(String(row.source_id));
+    }
+    return fresh;
+  } catch (error) {
+    // First run, missing env, table not yet created — anything that
+    // can't tell us "this row is fresh" should fall through to "assume
+    // nothing is fresh" so we re-enrich everything.
+    return new Set();
+  }
+}
+
+async function fetchExistingCarIdsForMake(canonicalName) {
+  const ids = [];
+  let from = 0;
+  while (true) {
+    const data = await executeSupabase(
+      getSupabase()
+        .from('cars')
+        .select('id, source_id')
+        .eq('source', SOURCE)
+        .eq('make', canonicalName)
+        .range(from, from + SELECT_PAGE_SIZE - 1),
+      'Select cars'
+    );
+    if (!data.length) break;
+    for (const row of data) ids.push(row);
+    if (data.length < SELECT_PAGE_SIZE) break;
+    from += SELECT_PAGE_SIZE;
+  }
+  return ids;
+}
+
+async function deleteMissingListings(makeScopes) {
+  let deleted = 0;
+  let makesProcessed = 0;
+  let makesSkipped = 0;
+
+  for (const scope of makeScopes) {
+    if (!scope.deletionSafe) {
+      makesSkipped += 1;
+      const reason = scope.warnings.length ? scope.warnings.join(' | ') : 'scope was not fully fetched';
+      console.warn(`[${scope.canonicalName}] Skipping deletion safeguard: ${reason}`);
+      continue;
+    }
+
+    const existing = await fetchExistingCarIdsForMake(scope.canonicalName);
+    if (!existing.length) {
+      makesProcessed += 1;
+      continue;
+    }
+
+    const seen = new Set(scope.seenSourceIds.map(String));
+    const missingIds = existing
+      .filter((row) => !seen.has(String(row.source_id)))
+      .map((row) => row.id);
+
+    if (!missingIds.length) {
+      makesProcessed += 1;
+      continue;
+    }
+
+    for (const chunk of chunkArray(missingIds, DELETE_CHUNK_SIZE)) {
+      await executeSupabase(
+        getSupabase().from('cars').delete().in('id', chunk),
+        'Delete disappeared cars'
+      );
+      deleted += chunk.length;
+    }
+
+    makesProcessed += 1;
+    console.log(`[${scope.canonicalName}] Removed ${missingIds.length} disappeared listings.`);
+  }
+
+  return { deleted, makesProcessed, makesSkipped };
+}
+
+// -----------------------------------------------------------------------------
+// Public entry points
+// -----------------------------------------------------------------------------
+
+// Encar's list endpoint silently returns Count=0 for any page size above
+// 1000 — clamp here so a bad config doesn't make the scraper look "empty"
+// when it's actually just over the API's per-page cap.
+const ENCAR_MAX_PAGE_SIZE = 1000;
+
 function createFetchOptions(options = {}) {
+  const requestedPageSize = options.pageSize || PAGE_SIZE;
   return {
     carListPath: options.carListPath,
     targetAliases: options.targetAliases,
-    pageSize: options.pageSize || PAGE_SIZE,
-    maxListingsPerMake: parsePositiveInt(options.maxListingsPerMake)
-      || parsePositiveInt(process.env.SCRAPER_MAX_LISTINGS_PER_MAKE)
-      || null,
+    pageSize: Math.min(requestedPageSize, ENCAR_MAX_PAGE_SIZE),
+    maxListingsPerMake:
+      parsePositiveInt(options.maxListingsPerMake) ||
+      parsePositiveInt(process.env.SCRAPER_MAX_LISTINGS_PER_MAKE) ||
+      null,
   };
 }
 
+/**
+ * Fetch + normalize without writing. Useful for dry-runs / inspection.
+ */
 async function fetchCars(options = {}) {
   const fetchOptions = createFetchOptions(options);
   const startedAt = new Date().toISOString();
   const { targets, unknownAliases } = await loadTargetManufacturers(fetchOptions);
   const exchangeRate = await fetchExchangeRate();
-  const cars = [];
+  await bootstrapSession();
+  const rows = [];
   const makes = [];
 
   if (unknownAliases.length) {
-    console.warn(`Ignoring unsupported makes from carlist.txt: ${unknownAliases.join(', ')}`);
+    console.warn(`Ignoring unsupported makes: ${unknownAliases.join(', ')}`);
   }
 
   for (const target of targets) {
@@ -617,15 +1637,21 @@ async function fetchCars(options = {}) {
       exchangeRate,
     });
     makes.push(result.meta);
-    cars.push(...result.cars);
+    rows.push(...result.rows);
   }
 
-  if (!makes.some(make => make.fetchSucceeded)) {
-    throw new Error('All make fetches failed. Aborting sync.');
+  // Only throw if we genuinely got nothing back — partial dry-runs are fine.
+  if (rows.length === 0 && makes.every((m) => !m.fetchSucceeded)) {
+    for (const m of makes) {
+      if (m.warnings?.length) {
+        for (const w of m.warnings) console.warn(`[${m.canonicalName}] ${w}`);
+      }
+    }
+    throw new Error('All make fetches failed and no rows were normalized.');
   }
 
   return {
-    cars,
+    rows,
     sync: {
       startedAt,
       completedAt: new Date().toISOString(),
@@ -638,344 +1664,71 @@ async function fetchCars(options = {}) {
   };
 }
 
-async function executeSupabase(query, label) {
-  const { data, error } = await query;
-  if (error) {
-    throw new Error(`${label}: ${error.message}`);
-  }
+// ---- sync_runs observability -----------------------------------------------
 
-  return data;
+async function startSyncRun(targets, exchangeRate) {
+  try {
+    const { data, error } = await getSupabase()
+      .from('sync_runs')
+      .insert({
+        targets: targets.map((t) => t.canonicalName),
+        exchange_rate: exchangeRate,
+        status: 'running',
+      })
+      .select('id')
+      .single();
+    if (error) throw error;
+    return data.id;
+  } catch (error) {
+    console.warn(`Could not record sync_run start: ${error.message}`);
+    return null;
+  }
 }
 
-async function upsertRows(table, rows, options = {}) {
-  if (!rows.length) {
-    return 0;
+async function finishSyncRun(runId, status, summary, errorMessage = null) {
+  if (runId == null) return;
+  try {
+    const { error } = await getSupabase()
+      .from('sync_runs')
+      .update({
+        finished_at: new Date().toISOString(),
+        status,
+        fetched_listings: summary?.totals?.fetchedListings ?? 0,
+        saved_rows: summary?.totals?.savedRows ?? 0,
+        skipped_listings: summary?.totals?.skippedListings ?? 0,
+        deleted_rows: summary?.totals?.deletedRows ?? 0,
+        error: errorMessage,
+        // Strip the heavy `seenSourceIds` array before writing — it can be
+        // tens of thousands of strings per make.
+        summary: summary
+          ? {
+              ...summary,
+              makes: summary.makes?.map((m) => {
+                const { seenSourceIds: _omit, ...rest } = m;
+                return rest;
+              }),
+            }
+          : null,
+      })
+      .eq('id', runId);
+    if (error) throw error;
+  } catch (error) {
+    console.warn(`Could not record sync_run finish: ${error.message}`);
   }
-
-  let written = 0;
-  for (const chunk of chunkArray(rows, UPSERT_CHUNK_SIZE)) {
-    await executeSupabase(
-      supabase.from(table).upsert(chunk, options.supabaseOptions || {}),
-      `Upsert ${table}`
-    );
-    written += chunk.length;
-  }
-
-  return written;
 }
 
-async function insertRows(table, rows) {
-  if (!rows.length) {
-    return 0;
-  }
-
-  let written = 0;
-  for (const chunk of chunkArray(rows, UPSERT_CHUNK_SIZE)) {
-    await executeSupabase(
-      supabase.from(table).insert(chunk),
-      `Insert ${table}`
-    );
-    written += chunk.length;
-  }
-
-  return written;
-}
-
-async function deleteRowsByColumnValues(table, column, values, label) {
-  if (!values.length) {
-    return 0;
-  }
-
-  let deleted = 0;
-  for (const chunk of chunkArray(values, DELETE_CHUNK_SIZE)) {
-    await executeSupabase(
-      supabase.from(table).delete().in(column, chunk),
-      `${label} (${table})`
-    );
-    deleted += chunk.length;
-  }
-
-  return deleted;
-}
-
-async function fetchAllRows(table, columns, applyFilters = query => query) {
-  const rows = [];
-  let offset = 0;
-
-  while (true) {
-    const query = applyFilters(
-      supabase
-        .from(table)
-        .select(columns)
-        .range(offset, offset + SELECT_PAGE_SIZE - 1)
-    );
-
-    const data = await executeSupabase(query, `Select ${table}`);
-    if (!data.length) {
-      break;
-    }
-
-    rows.push(...data);
-
-    if (data.length < SELECT_PAGE_SIZE) {
-      break;
-    }
-
-    offset += SELECT_PAGE_SIZE;
-  }
-
-  return rows;
-}
-
-function buildPersistencePayload(cars) {
-  const manufacturers = new Map();
-  const models = new Map();
-  const fuels = new Map();
-  const vehicles = new Map();
-  const lots = new Map();
-  const allLotIds = new Set();
-  const imagesByLot = new Map();
-
-  for (const car of cars) {
-    manufacturers.set(String(car.manufacturer.id), {
-      id: car.manufacturer.id,
-      name: car.manufacturer.name,
-    });
-
-    models.set(String(car.model.id), {
-      id: car.model.id,
-      name: car.model.name,
-      manufacturer_id: car.manufacturer.id,
-    });
-
-    fuels.set(String(car.fuel.id), {
-      id: car.fuel.id,
-      name: car.fuel.name,
-    });
-
-    vehicles.set(String(car.id), {
-      id: car.id,
-      title: car.title,
-      year: car.year,
-      manufacturer_id: car.manufacturer.id,
-      model_id: car.model.id,
-      fuel_id: car.fuel.id,
-    });
-
-    for (const lot of car.lots || []) {
-      const lotId = String(lot.lot);
-      allLotIds.add(lotId);
-
-      lots.set(lotId, {
-        lot_id: lotId,
-        vehicle_id: car.id,
-        buy_now: lot.buy_now,
-        lot_created_at: lot.created_at,
-        odometer_km: lot.odometer?.km,
-        odometer_mi: lot.odometer?.mi,
-        odometer_status: lot.odometer?.status?.name,
-        engine_volume: lot.details?.engine_volume,
-        original_price: lot.details?.original_price,
-        status: lot.status?.name === 'sale' ? 'On Sale' : lot.status?.name,
-      });
-
-      const seenImages = new Set();
-      const lotImages = [];
-      for (const url of lot.images?.normal || []) {
-        const key = `normal:${url}`;
-        if (!seenImages.has(key)) {
-          seenImages.add(key);
-          lotImages.push({ lot_id: lotId, url, type: 'normal' });
-        }
-      }
-
-      for (const url of lot.images?.big || []) {
-        const key = `big:${url}`;
-        if (!seenImages.has(key)) {
-          seenImages.add(key);
-          lotImages.push({ lot_id: lotId, url, type: 'big' });
-        }
-      }
-
-      imagesByLot.set(lotId, lotImages);
-    }
-  }
-
-  return {
-    manufacturers: Array.from(manufacturers.values()),
-    models: Array.from(models.values()),
-    fuels: Array.from(fuels.values()),
-    vehicles: Array.from(vehicles.values()),
-    lots: Array.from(lots.values()),
-    allLotIds: Array.from(allLotIds),
-    imagesByLot,
-  };
-}
-
-async function refreshLotImages(allLotIds, imagesByLot) {
-  let refreshedImages = 0;
-
-  for (const lotIdChunk of chunkArray(allLotIds, DELETE_CHUNK_SIZE)) {
-    await executeSupabase(
-      supabase.from('lot_images').delete().in('lot_id', lotIdChunk),
-      'Delete lot images before refresh'
-    );
-
-    const imageRows = [];
-    for (const lotId of lotIdChunk) {
-      imageRows.push(...(imagesByLot.get(lotId) || []));
-    }
-
-    refreshedImages += await insertRows('lot_images', imageRows);
-  }
-
-  return refreshedImages;
-}
-
-async function upsertCarsToSupabase(cars) {
-  if (!cars.length) {
-    return {
-      manufacturers: 0,
-      models: 0,
-      fuels: 0,
-      vehicles: 0,
-      lots: 0,
-      images: 0,
-    };
-  }
-
-  const payload = buildPersistencePayload(cars);
-
-  const summary = {
-    manufacturers: await upsertRows('manufacturers', payload.manufacturers),
-    models: await upsertRows('models', payload.models),
-    fuels: await upsertRows('fuels', payload.fuels),
-    vehicles: await upsertRows('vehicles', payload.vehicles),
-    lots: await upsertRows('lots', payload.lots),
-    images: await refreshLotImages(payload.allLotIds, payload.imagesByLot),
-  };
-
-  return summary;
-}
-
-async function fetchLotsForVehicleIds(vehicleIds) {
-  const rows = [];
-
-  for (const vehicleIdChunk of chunkArray(vehicleIds, DELETE_CHUNK_SIZE)) {
-    rows.push(...await fetchAllRows(
-      'lots',
-      'lot_id, vehicle_id',
-      query => query.in('vehicle_id', vehicleIdChunk)
-    ));
-  }
-
-  return rows;
-}
-
-async function deleteMissingListings(makeScopes) {
-  const summary = {
-    lots: 0,
-    images: 0,
-    vehicles: 0,
-    makesProcessed: 0,
-    makesSkipped: 0,
-  };
-
-  for (const scope of makeScopes) {
-    if (!scope.deletionSafe) {
-      summary.makesSkipped += 1;
-      const reason = scope.warnings.length ? scope.warnings.join(' | ') : 'scope was not fully fetched';
-      console.warn(`[${scope.canonicalName}] Skipping deletion safeguard: ${reason}`);
-      continue;
-    }
-
-    const manufacturers = await fetchAllRows(
-      'manufacturers',
-      'id, name',
-      query => query.eq('name', scope.canonicalName)
-    );
-
-    const manufacturerIds = manufacturers.map(row => row.id);
-    if (!manufacturerIds.length) {
-      summary.makesProcessed += 1;
-      continue;
-    }
-
-    const vehicles = await fetchAllRows(
-      'vehicles',
-      'id, manufacturer_id',
-      query => query.in('manufacturer_id', manufacturerIds)
-    );
-
-    const vehicleIds = uniqueItems(vehicles.map(row => row.id));
-    if (!vehicleIds.length) {
-      summary.makesProcessed += 1;
-      continue;
-    }
-
-    const lots = await fetchLotsForVehicleIds(vehicleIds);
-    const seenLotIds = new Set(scope.seenLotIds.map(String));
-    const missingLots = lots.filter(lot => !seenLotIds.has(String(lot.lot_id)));
-    const missingLotIds = uniqueItems(missingLots.map(lot => String(lot.lot_id)));
-
-    if (!missingLotIds.length) {
-      summary.makesProcessed += 1;
-      continue;
-    }
-
-    summary.images += await deleteRowsByColumnValues('lot_images', 'lot_id', missingLotIds, 'Delete disappeared lot images');
-    summary.lots += await deleteRowsByColumnValues('lots', 'lot_id', missingLotIds, 'Delete disappeared lots');
-
-    const affectedVehicleIds = uniqueItems(missingLots.map(lot => lot.vehicle_id));
-    const remainingLots = await fetchLotsForVehicleIds(affectedVehicleIds);
-    const vehiclesWithLots = new Set(remainingLots.map(lot => String(lot.vehicle_id)));
-    const orphanVehicleIds = affectedVehicleIds.filter(vehicleId => !vehiclesWithLots.has(String(vehicleId)));
-
-    summary.vehicles += await deleteRowsByColumnValues('vehicles', 'id', orphanVehicleIds, 'Delete orphan vehicles');
-    summary.makesProcessed += 1;
-
-    console.log(`[${scope.canonicalName}] Removed ${missingLotIds.length} disappeared listings.`);
-  }
-
-  return summary;
-}
-
-function normalizeSaveInput(input) {
-  if (Array.isArray(input)) {
-    return { cars: input, sync: null };
-  }
-
-  return {
-    cars: Array.isArray(input?.cars) ? input.cars : [],
-    sync: input?.sync || null,
-  };
-}
-
-async function saveToSupabase(input, options = {}) {
-  const { cars, sync } = normalizeSaveInput(input);
-  console.log(`Starting data ingestion to Supabase for ${cars.length} cars...`);
-
-  const writeSummary = await upsertCarsToSupabase(cars);
-  let deleteSummary = null;
-
-  if (options.deleteMissing !== false && sync?.makes?.length) {
-    deleteSummary = await deleteMissingListings(sync.makes);
-  }
-
-  const summary = {
-    ...writeSummary,
-    deletion: deleteSummary,
-  };
-
-  console.log('Ingestion completed.', summary);
-  return summary;
-}
-
+/**
+ * Fetch + normalize + write to Supabase + remove disappeared listings.
+ * Logs the run to public.sync_runs (best-effort).
+ */
 async function syncCars(options = {}) {
   const fetchOptions = createFetchOptions(options);
   const startedAt = new Date().toISOString();
   const { targets, unknownAliases } = await loadTargetManufacturers(fetchOptions);
   const exchangeRate = await fetchExchangeRate();
+  await bootstrapSession();
+  const runId = await startSyncRun(targets, exchangeRate);
+
   const summary = {
     startedAt,
     completedAt: null,
@@ -986,94 +1739,136 @@ async function syncCars(options = {}) {
     makes: [],
     totals: {
       fetchedListings: 0,
-      normalizedCars: 0,
+      normalizedRows: 0,
       skippedListings: 0,
-      savedVehicles: 0,
-      savedLots: 0,
-      refreshedImages: 0,
-      deletedLots: 0,
-      deletedImages: 0,
-      deletedVehicles: 0,
+      savedRows: 0,
+      deletedRows: 0,
     },
   };
 
   if (unknownAliases.length) {
-    console.warn(`Ignoring unsupported makes from carlist.txt: ${unknownAliases.join(', ')}`);
+    console.warn(`Ignoring unsupported makes: ${unknownAliases.join(', ')}`);
   }
 
-  for (const target of targets) {
-    const perMakeWriteSummary = {
-      vehicles: 0,
-      lots: 0,
-      images: 0,
-    };
+  try {
+    for (const target of targets) {
+      let savedThisMake = 0;
+      const result = await fetchManufacturerCars(target, {
+        pageSize: fetchOptions.pageSize,
+        maxListingsPerMake: fetchOptions.maxListingsPerMake,
+        exchangeRate,
+        onRowsBatch: async (batch) => {
+          const written = await upsertCarRows(batch);
+          savedThisMake += written;
+        },
+      });
 
-    const result = await fetchManufacturerCars(target, {
-      pageSize: fetchOptions.pageSize,
-      maxListingsPerMake: fetchOptions.maxListingsPerMake,
-      exchangeRate,
-      onCarsBatch: async batchCars => {
-        const writeSummary = await upsertCarsToSupabase(batchCars);
-        perMakeWriteSummary.vehicles += writeSummary.vehicles;
-        perMakeWriteSummary.lots += writeSummary.lots;
-        perMakeWriteSummary.images += writeSummary.images;
-      },
-    });
+      summary.makes.push(result.meta);
+      summary.totals.fetchedListings += result.meta.fetchedListings;
+      summary.totals.normalizedRows += result.meta.normalizedRows;
+      summary.totals.skippedListings += result.meta.skippedListings;
+      summary.totals.savedRows += savedThisMake;
+      summary.totals.freshSkipped =
+        (summary.totals.freshSkipped || 0) + (result.meta.freshSkipped || 0);
 
-    summary.makes.push(result.meta);
-    summary.totals.fetchedListings += result.meta.fetchedListings;
-    summary.totals.normalizedCars += result.meta.normalizedCars;
-    summary.totals.skippedListings += result.meta.skippedListings;
-    summary.totals.savedVehicles += perMakeWriteSummary.vehicles;
-    summary.totals.savedLots += perMakeWriteSummary.lots;
-    summary.totals.refreshedImages += perMakeWriteSummary.images;
-
-    if (perMakeWriteSummary.vehicles > 0) {
-      console.log(`[${target.canonicalName}] Saved ${perMakeWriteSummary.vehicles} vehicles and ${perMakeWriteSummary.lots} lots.`);
-    } else {
-      console.log(`[${target.canonicalName}] No valid listings to save.`);
+      const summaryParts = [];
+      if (savedThisMake > 0) summaryParts.push(`saved ${savedThisMake}`);
+      if (result.meta.freshSkipped > 0) {
+        summaryParts.push(`skipped ${result.meta.freshSkipped} fresh`);
+      }
+      console.log(
+        summaryParts.length
+          ? `[${target.canonicalName}] ${summaryParts.join(', ')}.`
+          : `[${target.canonicalName}] No valid listings to save.`
+      );
     }
-  }
 
-  if (!summary.makes.some(make => make.fetchSucceeded)) {
-    throw new Error('All make fetches failed. No deletion was attempted.');
-  }
+    // Always surface per-make warnings so a partial run is still
+    // diagnosable. These are visible in the console + persisted in
+    // sync_runs.summary.
+    for (const m of summary.makes) {
+      if (m.warnings?.length) {
+        for (const w of m.warnings) console.warn(`[${m.canonicalName}] ${w}`);
+      }
+    }
 
-  if (fetchOptions.maxListingsPerMake === null) {
-    const deleteSummary = await deleteMissingListings(summary.makes);
-    summary.totals.deletedLots = deleteSummary.lots;
-    summary.totals.deletedImages = deleteSummary.images;
-    summary.totals.deletedVehicles = deleteSummary.vehicles;
-    summary.deletion = deleteSummary;
-  } else {
-    summary.deletion = {
-      skipped: true,
-      reason: 'Deletion is disabled when SCRAPER_MAX_LISTINGS_PER_MAKE is set.',
-    };
-  }
+    const anySaved = summary.totals.savedRows > 0;
+    const anyFailed = summary.makes.some((m) => !m.fetchSucceeded);
+    const allFailed = summary.makes.every((m) => !m.fetchSucceeded);
 
-  summary.completedAt = new Date().toISOString();
-  return summary;
+    // Hard fail only if NOTHING was saved AND every make hit page errors.
+    // Partial saves are common (transient timeouts mid-pagination) and
+    // should not abort the run — we keep what we got and let the next
+    // scheduled run fill in the rest. Deletion only runs when fully
+    // successful so we never delete based on incomplete data.
+    if (!anySaved && allFailed) {
+      throw new Error(
+        'All make fetches failed and no rows were saved. ' +
+        'See per-make warnings above for the actual cause.'
+      );
+    }
+
+    if (fetchOptions.maxListingsPerMake === null && !anyFailed) {
+      const del = await deleteMissingListings(summary.makes);
+      summary.totals.deletedRows = del.deleted;
+      summary.deletion = del;
+    } else if (anyFailed) {
+      summary.deletion = {
+        skipped: true,
+        reason:
+          'Deletion safeguard: at least one make had pagination errors, so we ' +
+          'cannot prove which listings disappeared. Will retry on next run.',
+      };
+    } else {
+      summary.deletion = {
+        skipped: true,
+        reason: 'Deletion is disabled when SCRAPER_MAX_LISTINGS_PER_MAKE is set.',
+      };
+    }
+
+    summary.completedAt = new Date().toISOString();
+    reportUnmappedFragments(console);
+
+    const status = anyFailed ? 'partial' : 'success';
+    await finishSyncRun(runId, status, summary);
+    return summary;
+  } catch (error) {
+    summary.completedAt = new Date().toISOString();
+    reportUnmappedFragments(console);
+    // Surface per-make warnings before rethrowing so the operator can
+    // see what actually went wrong.
+    for (const m of summary.makes) {
+      if (m.warnings?.length) {
+        for (const w of m.warnings) console.warn(`[${m.canonicalName}] ${w}`);
+      }
+    }
+    await finishSyncRun(runId, 'failed', summary, error.message);
+    throw error;
+  }
 }
+
+// -----------------------------------------------------------------------------
+// CLI
+// -----------------------------------------------------------------------------
 
 if (require.main === module) {
   const cliAliases = process.argv.slice(2);
 
   syncCars({ targetAliases: cliAliases.length ? cliAliases : undefined })
-    .then(summary => {
+    .then((summary) => {
       console.log('Encar scraper sync finished.');
       console.log(JSON.stringify({
         totals: summary.totals,
-        makes: summary.makes.map(make => ({
-          make: make.canonicalName,
-          fetchedListings: make.fetchedListings,
-          normalizedCars: make.normalizedCars,
-          skippedListings: make.skippedListings,
-          deletionSafe: make.deletionSafe,
+        makes: summary.makes.map((m) => ({
+          make: m.canonicalName,
+          fetchedListings: m.fetchedListings,
+          normalizedRows: m.normalizedRows,
+          skippedListings: m.skippedListings,
+          deletionSafe: m.deletionSafe,
         })),
       }, null, 2));
     })
-    .catch(error => {
+    .catch((error) => {
       console.error('Encar scraper sync failed:', error.message);
       process.exitCode = 1;
     });
@@ -1081,7 +1876,11 @@ if (require.main === module) {
 
 module.exports = {
   fetchCars,
-  saveToSupabase,
   syncCars,
   loadTargetManufacturers,
+  // Exposed for tests / one-off scripts.
+  normalizeListing,
+  normalizeFuelType,
+  extractRegistration,
+  buildImageUrls,
 };

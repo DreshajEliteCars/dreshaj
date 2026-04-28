@@ -1,0 +1,21 @@
+# One proxy per line. Lines starting with # or empty lines are ignored.
+# Rename this file to `proxy.txt` (no `.example`) and the scraper will
+# pick it up automatically. Alternative: set the SCRAPER_PROXIES env var
+# (comma- or newline-separated, same formats).
+#
+# Supported formats:
+#
+#   host:port
+#   host:port:user:pass
+#   user:pass@host:port
+#   http://user:pass@host:port
+#   https://user:pass@host:port
+#
+# Each proxy in the pool gets its own browser session (own cookie jar,
+# own bootstrap state). The scraper round-robins requests across the
+# pool and skips any proxy that returns 3 consecutive failures for 60s.
+
+# Example entries — replace with real proxies:
+# 1.2.3.4:8080
+# 1.2.3.4:8080:myuser:mypass
+# myuser:mypass@1.2.3.4:8080

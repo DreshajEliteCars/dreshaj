@@ -32,6 +32,15 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+!**/.env.example
+
+# scraper local node_modules
+scraper/node_modules/
+
+# proxy list (real proxies — keep out of git)
+scraper/proxy.txt
+!scraper/proxy.txt.example
 
 # vercel
 .vercel
