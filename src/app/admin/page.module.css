@@ -1,0 +1,103 @@
+.adminContainer {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 4rem 1rem;
+}
+
+.adminHeader {
+  margin-bottom: 3rem;
+  text-align: center;
+}
+
+.adminHeader h1 {
+  font-size: 2.5rem;
+  color: #1a1a1a;
+  margin-bottom: 0.5rem;
+}
+
+.adminHeader p {
+  color: #666;
+  font-size: 1.1rem;
+}
+
+.uploadSection {
+  background-color: #ffffff;
+  border-radius: 12px;
+  padding: 2.5rem;
+  margin-bottom: 4rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid #eaeaea;
+}
+
+.uploadSection h2 {
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+  color: #1a1a1a;
+  border-bottom: 2px solid #0047bb;
+  display: inline-block;
+  padding-bottom: 0.5rem;
+}
+
+.formGroup {
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.formGroup label {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #333;
+}
+
+.formGroup input {
+  padding: 0.8rem 1rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.formGroup input:focus {
+  outline: none;
+  border-color: #0047bb;
+}
+
+.fileInput {
+  border: 2px dashed #0047bb;
+  padding: 2.5rem;
+  text-align: center;
+  border-radius: 8px;
+  cursor: pointer;
+  background-color: #f4f8ff;
+  color: #0047bb;
+  font-weight: 600;
+}
+
+.fileInput:hover {
+  background-color: #e5f0ff;
+}
+
+.submitBtn {
+  background-color: #0047bb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.submitBtn:hover {
+  background-color: #00368c;
+}
+
+.submitBtn:active {
+  transform: translateY(2px);
+}
+
+/* image preview styles removed - previews disabled in admin form */

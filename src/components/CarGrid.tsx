@@ -23,14 +23,18 @@ export default function CarGrid({ title, cars, showOpacity }: { title: string, c
         {cars.map((car, i) => (
           <div key={i} className={styles.listingCard} style={showOpacity ? { opacity: 0.75 } : undefined}>
             <div className={styles.listingImage}>
-              <img 
-                src={car.img} 
-                alt={car.title} 
-                style={showOpacity ? { filter: 'grayscale(50%)' } : undefined} 
-              />
+              {car.img ? (
+                <img
+                  src={car.img}
+                  alt={car.title}
+                  style={showOpacity ? { filter: 'grayscale(50%)' } : undefined}
+                />
+              ) : (
+                <div className={styles.listingNoImage} />
+              )}
               {car.badge && (
-                <span 
-                  className={styles.listingBadge} 
+                <span
+                  className={styles.listingBadge}
                   style={showOpacity ? { backgroundColor: '#dc3545', color: '#fff' } : undefined}
                 >
                   {car.badge}
