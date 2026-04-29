@@ -6,7 +6,7 @@ import styles from "./Header.module.css";
 import { useLanguage } from "../context/LanguageContext";
 
 export default function Header() {
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
 
   return (
     <header className={styles.header}>
@@ -23,6 +23,8 @@ export default function Header() {
             />
           </Link>
           <nav className={styles.headerNav}>
+            <Link href="/">{t("home")}</Link>
+            <Link href="/contact">{t("contact")}</Link>
           </nav>
         </div>
         <div className={styles.headerRight}>

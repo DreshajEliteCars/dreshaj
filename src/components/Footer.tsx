@@ -2,9 +2,13 @@
 
 import styles from "./Footer.module.css";
 import { useLanguage } from "../context/LanguageContext";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 export default function Footer() {
   const { t } = useLanguage();
+  const pathname = usePathname();
+
   return (
     <footer className={styles.classicFooter}>
       <div className={styles.classicFooterInner}>
@@ -17,7 +21,7 @@ export default function Footer() {
             <div className={styles.classicColTitle}>{t("company")}</div>
             <ul className={styles.classicLinks}>
               <li><a href="#">{t("about")}</a></li>
-              <li><a href="#">{t("contact")}</a></li>
+              <li><Link href="/contact">{t("contact")}</Link></li>
               <li><a href="/garancioni">{t("data_protection")}</a></li>
             </ul>
 
@@ -53,18 +57,20 @@ export default function Footer() {
             </div>
           </div>
 
-          <div className={styles.classicRight}>
-            <div className={styles.classicHeader}>{t("location")}</div>
-            <iframe 
-              src="https://maps.google.com/maps?q=Bulevardi%20Nena%20Tereza,%20Pristina&t=&z=14&ie=UTF8&iwloc=&output=embed" 
-              width="260" 
-              height="140" 
-              style={{ border: 0, borderRadius: '8px', display: 'inline-block' }} 
-              allowFullScreen 
-              loading="lazy" 
-              referrerPolicy="no-referrer-when-downgrade"
-            ></iframe>
-          </div>
+          {pathname !== "/contact" && (
+            <div className={styles.classicRight}>
+              <div className={styles.classicHeader}>{t("location")}</div>
+              <iframe 
+                src="https://maps.google.com/maps?q=Bulevardi%20Nena%20Tereza,%20Pristina&t=&z=14&ie=UTF8&iwloc=&output=embed" 
+                width="260" 
+                height="140" 
+                style={{ border: 0, borderRadius: '8px', display: 'inline-block' }} 
+                allowFullScreen 
+                loading="lazy" 
+                referrerPolicy="no-referrer-when-downgrade"
+              ></iframe>
+            </div>
+          )}
         </div>
 
         <div className={styles.classicBottom}>
