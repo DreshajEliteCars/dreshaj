@@ -25,8 +25,20 @@ const DEFAULT_PROXY_FILE = path.join(__dirname, 'proxy.txt');
 
 function normalizeProxy(line) {
   if (!line) return null;
-  const trimmed = String(line).trim();
+  let trimmed = String(line).trim();
   if (!trimmed || trimmed.startsWith('#')) return null;
+
+  // Strip metadata-tagged format produced by proxy testers, e.g.
+  //   proxy=host:port:user:pass | ip=... | country=... | ...
+  // Take only the segment before the first ' | ' and drop the
+  // leading "proxy=" key. Empty/incomplete tails are tolerated.
+  if (trimmed.includes('|')) {
+    trimmed = trimmed.split('|')[0].trim();
+  }
+  if (/^proxy\s*=/i.test(trimmed)) {
+    trimmed = trimmed.replace(/^proxy\s*=\s*/i, '').trim();
+  }
+  if (!trimmed) return null;
 
   // Already has scheme prefix.
   if (/^https?:\/\//i.test(trimmed)) {

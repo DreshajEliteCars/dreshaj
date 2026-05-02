@@ -20,3 +20,32 @@
 .socialRow { display: flex; gap: 12px; margin-top: 20px; }
 .socialIcon { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 8px; border: 1px solid #ddd; color: #555; background: #fff; transition: all 0.2s; text-decoration: none; }
 .socialIcon:hover { background: #f0f0f0; color: #111; border-color: #bbb; transform: translateY(-2px); }
+
+@media (max-width: 768px) {
+  .classicMain {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .classicLeft {
+    flex: 1;
+    min-width: 0;
+  }
+  .classicRight {
+    flex: 0 0 auto;
+    text-align: left;
+  }
+  .classicHeader {
+    font-size: 13px;
+    margin-bottom: 12px;
+  }
+  .classicColTitle {
+    font-size: 13px;
+  }
+  .classicLinks li a {
+    font-size: 13px;
+  }
+  .socialRow {
+    justify-content: flex-start;
+  }
+}

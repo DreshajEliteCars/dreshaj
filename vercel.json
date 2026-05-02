@@ -1,0 +1,23 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "framework": "nextjs",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- ':(exclude)scraper/' ':(exclude).github/' ':(exclude)supabase/' ':(exclude)*.md'",
+  "functions": {
+    "src/app/api/cars/[id]/og/route.tsx": {
+      "memory": 1024
+    },
+    "src/app/api/cars/[id]/inspection/route.ts": {
+      "memory": 256,
+      "maxDuration": 30
+    },
+    "src/app/api/cars/[id]/condition/route.ts": {
+      "memory": 256,
+      "maxDuration": 30
+    },
+    "src/app/api/cars/[id]/accidents/route.ts": {
+      "memory": 256,
+      "maxDuration": 30
+    }
+  }
+}

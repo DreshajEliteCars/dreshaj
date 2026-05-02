@@ -5,8 +5,8 @@ export const brandModels: Record<string, string[]> = {
     "Scirocco","Sharan","T-Roc","Tiguan","Touareg","Transporter","up!","Vento",
   ],
   "BMW": [
-    "1 Series","1M","2 Series","3 Series","4 Series","5 Series","6 Series",
-    "7 Series","8 Series","Gran Turismo (GT)","i3","i4","i5","i7","i8",
+    "1-Series","1M","2-Series","3-Series","4-Series","5-Series","6-Series",
+    "7-Series","8-Series","Gran Turismo","i3","i4","i5","i7","i8",
     "iX","iX1","iX2","iX3","M2","M3","M4","M5","M6","M8","M Coupe/Roadster",
     "X1","X2","X3","X3M","X4","X4M","X5","X5M","X6","X6M","X7","XM","Z3","Z4","Z8",
   ],
@@ -14,7 +14,7 @@ export const brandModels: Record<string, string[]> = {
     "190-Class","A-Class","AMG GT","B-Class","C-Class","CL-Class","CLA-Class",
     "CLE-Class","CLK-Class","CLS-Class","E-Class","EQA","EQB","EQC","EQE","EQS",
     "G-Class","GL-Class","GLA-Class","GLB-Class","GLC-Class","GLE-Class",
-    "GLK-Class","GLS-Class","M-Class","R-Class","S-Class","SEL/SEC",
+    "GLK-Class","GLS-Class","M-class","R-Class","S-Class","SEL/SEC",
     "SL-Class","SLC-Class","SLK-Class","SLR","SLS AMG","Sprinter","V-Class",
   ],
   "Audi": [

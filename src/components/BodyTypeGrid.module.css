@@ -32,3 +32,77 @@
   .bodyTypeGrid { flex-wrap: wrap; justify-content: center; }
   .demandDiscoverRow { flex-direction: column; }
 }
+
+.bodyTypeGridWrapper {
+  position: relative;
+}
+
+.scrollArrow {
+  display: none;
+  position: absolute;
+  top: 40%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  color: #333;
+  border: 1px solid #ddd;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.scrollArrowLeft {
+  left: -4px;
+}
+
+.scrollArrowRight {
+  right: -4px;
+}
+
+.scrollArrow svg {
+  width: 20px;
+  height: 20px;
+}
+
+@media (max-width: 600px) {
+  .bodyTypeGrid { 
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    justify-content: flex-start;
+    padding-bottom: 10px;
+    gap: 6px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .bodyTypeGrid::-webkit-scrollbar {
+    display: none;
+  }
+  .bodyTypeItem {
+    flex: 0 0 85px;
+    padding: 8px 4px;
+    background: transparent;
+  }
+  .bodyTypeIcon img {
+    max-width: 70px;
+    max-height: 35px;
+  }
+  .bodyTypeLabel {
+    font-size: 11px;
+  }
+  .scrollArrow {
+    display: flex;
+    width: 32px;
+    height: 32px;
+  }
+  .scrollArrow svg {
+    width: 16px;
+    height: 16px;
+  }
+}

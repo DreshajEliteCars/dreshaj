@@ -105,6 +105,20 @@ body {
   text-size-adjust: 100%;
   letter-spacing: 0px;
   zoom: 1.25;
+  overflow-x: hidden;
+  width: 100%;
+  position: relative;
+}
+
+html {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  body {
+    zoom: 1; /* Remove zoom on mobile as it breaks viewport width */
+  }
 }
 
 a {

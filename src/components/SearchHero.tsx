@@ -106,7 +106,9 @@ export default function SearchHero() {
                 </select>
                 <span className={styles.selectArrow}>▾</span>
               </div>
+            </div>
 
+            <div className={styles.searchRow}>
               <div className={styles.selectWrapper}>
                 <select
                   className={styles.selectField}
@@ -124,10 +126,8 @@ export default function SearchHero() {
                 </select>
                 <span className={styles.selectArrow}>▾</span>
               </div>
-            </div>
 
-            <div className={styles.searchRow2}>
-              <div className={styles.selectWrapper} style={{ flex: "0 0 200px" }}>
+              <div className={styles.selectWrapper}>
                 <select
                   className={styles.selectField}
                   value={filters.registrationFrom ?? ""}
@@ -147,27 +147,33 @@ export default function SearchHero() {
                 </select>
                 <span className={styles.selectArrow}>▾</span>
               </div>
+            </div>
 
-              <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                <button
-                  type="button"
-                  className={styles.searchButton}
-                  onClick={submit}
+            <div className={styles.submitContainer}>
+              <button
+                type="button"
+                className={styles.searchButtonFull}
+                onClick={submit}
+              >
+                {t("search_btn")}
+              </button>
+              
+              <div className={styles.actionLinks}>
+                <a
+                  href="#"
+                  className={styles.refineLink}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setShowAdvanced(true);
+                  }}
                 >
-                  {t("search_btn")}
-                </button>
+                  {t("detailed_search")}
+                </a>
+                
                 {anyActive && (
                   <button
                     type="button"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--color-text-and-icon-muted)",
-                      cursor: "pointer",
-                      fontSize: "14px",
-                      fontWeight: 500,
-                      textDecoration: "underline",
-                    }}
+                    className={styles.clearFiltersBtn}
                     onClick={clear}
                   >
                     {t("clear_filters")}
@@ -175,17 +181,6 @@ export default function SearchHero() {
                 )}
               </div>
             </div>
-
-            <a
-              href="#"
-              className={styles.refineLink}
-              onClick={(e) => {
-                e.preventDefault();
-                setShowAdvanced(true);
-              }}
-            >
-              {t("detailed_search")}
-            </a>
           </div>
         </div>
       </section>

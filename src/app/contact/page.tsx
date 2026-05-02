@@ -63,6 +63,21 @@ export default function ContactPage() {
             <div className={styles.contactMethod}>
               <div className={styles.iconWrapper}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                  <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+              </div>
+              <div className={styles.methodDetails}>
+                <span className={styles.methodLabel}>Email</span>
+                <a href="mailto:dreshajelitecars@gmail.com" className={styles.methodValue}>
+                  dreshajelitecars@gmail.com
+                </a>
+              </div>
+            </div>
+
+            <div className={styles.contactMethod}>
+              <div className={styles.iconWrapper}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                   <circle cx="12" cy="10" r="3"></circle>
                 </svg>
@@ -70,7 +85,7 @@ export default function ContactPage() {
               <div className={styles.methodDetails}>
                 <span className={styles.methodLabel}>{t("location")}</span>
                 <span className={styles.methodValue}>
-                  Bulevardi Nënë Tereza, Prishtinë
+                  Peja, Nabergjan Rruga Smail Quku 34
                 </span>
               </div>
             </div>
@@ -85,13 +100,20 @@ export default function ContactPage() {
           </div>
 
           <div className={styles.mapCard}>
-            <iframe 
-              src="https://maps.google.com/maps?q=Bulevardi%20Nena%20Tereza,%20Pristina&t=&z=14&ie=UTF8&iwloc=&output=embed" 
-              className={styles.mapIframe}
-              allowFullScreen 
-              loading="lazy" 
-              referrerPolicy="no-referrer-when-downgrade"
-            ></iframe>
+            <a 
+              href="https://maps.app.goo.gl/xUmUgjiD2Vo6gX4n7" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className={styles.mapLink}
+            >
+              <iframe 
+                src="https://maps.google.com/maps?q=34%20Smail%20Quku,%20Nabërgjan%2030000&t=&z=15&ie=UTF8&iwloc=&output=embed" 
+                className={styles.mapIframe}
+                allowFullScreen 
+                loading="lazy" 
+                referrerPolicy="no-referrer-when-downgrade"
+              ></iframe>
+            </a>
           </div>
         </div>
       </div>

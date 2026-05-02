@@ -18,6 +18,8 @@ import {
   searchCars,
   SortOption,
 } from "../../lib/cars";
+import { applyShipPrice } from "../../lib/appSettings";
+import { useShipPrice } from "../../lib/useShipPrice";
 
 // --- Static filter option lists -----------------------------------------------
 
@@ -132,6 +134,12 @@ function CarsPageInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Flat shipping fee added on top of every Encar price (admin-tunable
+  // from /dashboard). The DB stores raw `price_eur` (Encar + markup).
+  // We add `shipPrice` only at display time so the value can change at
+  // runtime without re-scraping.
+  const shipPrice = useShipPrice();
+
   const models = filters.make ? brandModels[filters.make] ?? [] : [];
 
   // ---- Helpers to update filter slices ---------------------------------------
@@ -152,6 +160,20 @@ function CarsPageInner() {
   const clearAll = useCallback(() => {
     setFilters(emptyFilters());
   }, []);
+
+  const [searchInput, setSearchInput] = useState(filters.searchQuery);
+  useEffect(() => {
+    setSearchInput(filters.searchQuery);
+  }, [filters.searchQuery]);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (filters.searchQuery !== searchInput) {
+        update("searchQuery", searchInput);
+      }
+    }, 400);
+    return () => clearTimeout(handler);
+  }, [searchInput, filters.searchQuery, update]);
 
   // Scroll to top of results when changing pages so users see the new list.
   const resultsTopRef = useRef<HTMLDivElement | null>(null);
@@ -182,7 +204,22 @@ function CarsPageInner() {
     setLoading(true);
     setError(null);
 
-    searchCars(filters, { signal: controller.signal })
+    // The user enters/displays prices including the ship fee, but the
+    // DB column doesn't include it — shift the bounds before querying
+    // so the filter matches what the user sees.
+    const queryFilters: CarFilters = {
+      ...filters,
+      priceFrom:
+        filters.priceFrom != null
+          ? Math.max(0, filters.priceFrom - shipPrice)
+          : null,
+      priceTo:
+        filters.priceTo != null
+          ? Math.max(0, filters.priceTo - shipPrice)
+          : null,
+    };
+
+    searchCars(queryFilters, { signal: controller.signal })
       .then((result) => {
         if (requestId !== requestIdRef.current) return;
         setCars(result.cars);
@@ -201,7 +238,7 @@ function CarsPageInner() {
       });
 
     return () => controller.abort();
-  }, [filters]);
+  }, [filters, shipPrice]);
 
   // ---- Active filter chips ---------------------------------------------------
 
@@ -469,23 +506,28 @@ function CarsPageInner() {
             </div>
           </div>
 
-          {chips.length > 0 && (
-            <div className={styles.searchChips}>
-              {chips.map((chip) => (
-                <div key={chip.key} className={styles.chip}>
-                  {chip.label}
-                  <span
-                    className={styles.chipClose}
-                    role="button"
-                    aria-label={`Remove ${chip.label}`}
-                    onClick={chip.onRemove}
-                  >
-                    ×
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className={styles.searchChips}>
+            {chips.map((chip) => (
+              <div key={chip.key} className={styles.chip}>
+                {chip.label}
+                <span
+                  className={styles.chipClose}
+                  role="button"
+                  aria-label={`Remove ${chip.label}`}
+                  onClick={chip.onRemove}
+                >
+                  ×
+                </span>
+              </div>
+            ))}
+            <input
+              type="text"
+              className={styles.textSearchInput}
+              placeholder={t("search_placeholder") ?? "Kërko modele, opsione..."}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+            />
+          </div>
 
           {error ? (
             <div className={styles.emptyState}>
@@ -549,7 +591,7 @@ function CarsPageInner() {
                     </div>
 
                     <div className={styles.priceWrapper}>
-                      <div className={styles.cardPrice}>{formatPrice(car.price_eur, t("price_on_request"))}</div>
+                      <div className={styles.cardPrice}>{formatPrice(applyShipPrice(car.price_eur, shipPrice), t("price_on_request"))}</div>
                       {(car.finance_monthly_eur != null || car.insurance_monthly_eur != null) && (
                         <div className={styles.financeOptions}>
                           {car.finance_monthly_eur != null && (
