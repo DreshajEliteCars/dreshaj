@@ -72,10 +72,17 @@ jobs:
       - name: Write proxy list
         # The scraper looks for proxy.txt next to scraper.js. If the
         # secret is unset (early dev/prod), it falls back to direct.
-        if: ${{ secrets.SCRAPER_PROXIES != '' }}
+        # GitHub disallows `secrets.*` in `if:` conditions, so we copy
+        # the secret into an env var first and gate on that.
         env:
           SCRAPER_PROXIES: ${{ secrets.SCRAPER_PROXIES }}
-        run: printf "%s\n" "$SCRAPER_PROXIES" > scraper/proxy.txt
+        run: |
+          if [ -n "$SCRAPER_PROXIES" ]; then
+            printf "%s\n" "$SCRAPER_PROXIES" > scraper/proxy.txt
+            echo "Wrote $(wc -l < scraper/proxy.txt) lines to scraper/proxy.txt"
+          else
+            echo "SCRAPER_PROXIES secret not set — running in direct mode"
+          fi
 
       - name: Run sync
         working-directory: scraper
