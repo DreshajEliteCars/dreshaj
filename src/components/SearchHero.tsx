@@ -18,7 +18,7 @@ const MILEAGE_OPTIONS = [0, 50000, 100000, 150000, 200000];
 const FUEL_OPTIONS = ["Diesel", "Petrol", "Elektrik", "Hibrid"];
 const TRANSMISSION_OPTIONS = ["Automatik", "Manual"];
 const CURRENT_YEAR = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: 10 }, (_, i) => CURRENT_YEAR - i);
+const YEAR_OPTIONS = Array.from({ length: 12 }, (_, i) => CURRENT_YEAR - i);
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
