@@ -18,7 +18,9 @@
  *   SCRAPER_TIMEOUT_MS               - default 15000
  *   SCRAPER_MAX_RETRIES              - default 3
  *   SCRAPER_PRICE_MARKUP_EUR         - default 400
- *   SCRAPER_MAX_LISTINGS_PER_MAKE    - cap per make (disables deletion safeguard)
+ *   SCRAPER_MAX_LISTINGS_PER_MAKE    - cap per make (rolling top-N: any
+ *                                      DB row outside the freshly fetched
+ *                                      batch is treated as sold and removed)
  *
  * CLI:
  *   node scraper/scraper.js                    # use carlist.txt
@@ -1524,10 +1526,17 @@ async function fetchManufacturerCars(target, options = {}) {
   }
 
   const fetchSucceeded = shared.pageFailures === 0;
+  // Deletion is safe when:
+  //   - no cap: we've seen >= the count Encar reported, so anything in DB
+  //     and not in our fetch is genuinely gone.
+  //   - capped (e.g. 500 per make): we treat the fetched batch as the
+  //     authoritative inventory for that make. Anything outside the
+  //     batch is sold / bumped off the top-N and should be removed,
+  //     keeping the local DB to a rolling top-N per make.
   const deletionSafe =
-    maxListingsPerMake === null &&
     fetchSucceeded &&
-    shared.seenSourceIds.size >= (finalCount || 0);
+    (maxListingsPerMake !== null ||
+      shared.seenSourceIds.size >= (finalCount || 0));
 
   return {
     rows: shared.rows,
@@ -1894,21 +1903,20 @@ async function syncCars(options = {}) {
       );
     }
 
-    if (fetchOptions.maxListingsPerMake === null && !anyFailed) {
+    if (!anyFailed) {
+      // Run deletion regardless of whether a per-make cap is set.
+      // Per-make `deletionSafe` decides what to actually do for each
+      // make; capped makes treat the fetched batch as authoritative
+      // (rolling top-N), uncapped makes use the full Encar count.
       const del = await deleteMissingListings(summary.makes);
       summary.totals.deletedRows = del.deleted;
       summary.deletion = del;
-    } else if (anyFailed) {
+    } else {
       summary.deletion = {
         skipped: true,
         reason:
           'Deletion safeguard: at least one make had pagination errors, so we ' +
           'cannot prove which listings disappeared. Will retry on next run.',
-      };
-    } else {
-      summary.deletion = {
-        skipped: true,
-        reason: 'Deletion is disabled when SCRAPER_MAX_LISTINGS_PER_MAKE is set.',
       };
     }
 
