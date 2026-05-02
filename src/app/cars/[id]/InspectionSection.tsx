@@ -153,9 +153,6 @@ function ReportBody({
       label: t("insp_warranty_trans"),
       value: <YesNo value={report.warrantyTransmission} t={t} />,
     },
-    ...(report.colorTitle
-      ? [{ label: t("insp_color"), value: report.colorTitle }]
-      : []),
   ];
 
   const mechanicalRows: { label: string; status: InspectionStatus }[] = [

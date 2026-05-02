@@ -61,6 +61,7 @@ export type Car = {
 };
 
 export type CarFilters = {
+  searchQuery: string;
   make: string;
   model: string;
   bodyTypes: string[];
@@ -85,6 +86,7 @@ export type CarSearchResult = {
 export const DEFAULT_PAGE_SIZE = 10;
 
 export const emptyFilters = (): CarFilters => ({
+  searchQuery: "",
   make: "",
   model: "",
   bodyTypes: [],
@@ -122,6 +124,7 @@ function toPositiveInt(value: string | null): number | null {
 
 export function filtersToSearchParams(f: CarFilters): URLSearchParams {
   const params = new URLSearchParams();
+  if (f.searchQuery) params.set("q", f.searchQuery);
   if (f.make) params.set("make", f.make);
   if (f.model) params.set("model", f.model);
   if (f.bodyTypes.length) params.set("bodyTypes", f.bodyTypes.join(","));
@@ -149,6 +152,7 @@ export function filtersFromSearchParams(params: SearchParamsLike): CarFilters {
 
   return {
     ...emptyFilters(),
+    searchQuery: get("q") ?? "",
     make: get("make") ?? "",
     model: get("model") ?? "",
     bodyTypes: bodyTypesRaw ? bodyTypesRaw.split(",").filter(Boolean) : [],
@@ -173,6 +177,7 @@ export function filtersFromSearchParams(params: SearchParamsLike): CarFilters {
  */
 export function hasActiveFilters(f: CarFilters): boolean {
   return Boolean(
+    f.searchQuery ||
     f.make ||
       f.model ||
       f.bodyTypes.length > 0 ||
@@ -238,6 +243,12 @@ export async function searchCars(
 
   let q = supabase.from("cars").select("*", { count: "exact" });
 
+  if (filters.searchQuery) {
+    // Basic text search across make, model, and trim.
+    const term = `%${filters.searchQuery}%`;
+    q = q.or(`make.ilike.${term},model.ilike.${term},trim.ilike.${term}`);
+  }
+
   if (filters.make) q = q.eq("make", filters.make);
   if (filters.model) q = q.eq("model", filters.model);
   if (filters.bodyTypes.length) q = q.in("body_type", filters.bodyTypes);
@@ -270,8 +281,8 @@ export async function searchCars(
       q = q.order("mileage_km", { ascending: true, nullsFirst: false });
       break;
     default:
-      // "best results" = most recently scraped first.
-      q = q.order("created_at", { ascending: false });
+      // "best results" = highest quality listings (most photos) first, then newest
+      q = q.order("photo_count", { ascending: false }).order("created_at", { ascending: false });
       break;
   }
 

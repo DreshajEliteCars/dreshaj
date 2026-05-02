@@ -37,7 +37,7 @@ export function getSupabase(): SupabaseClient | null {
     return null;
   }
   _client = createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
+    auth: { persistSession: true, autoRefreshToken: true },
     global: { headers: { "x-client-info": "dreshaj-web" } },
   });
   return _client;

@@ -62,7 +62,42 @@ const PAGE_SIZE = parsePositiveInt(process.env.SCRAPER_PAGE_SIZE) || 500;
 // Encar timeout / 502 mid-pagination instead of bailing on the bucket.
 const MAX_RETRIES = parsePositiveInt(process.env.SCRAPER_MAX_RETRIES) || 5;
 const PRICE_MARKUP_EUR = parsePositiveInt(process.env.SCRAPER_PRICE_MARKUP_EUR) || 400;
-const FALLBACK_KRW_TO_EUR_RATE = 0.00069;
+
+// Tiered markup applied on top of the base markup based on the converted
+// EUR price (pre-markup). Mirrors a typical importer fee structure where
+// higher-value cars carry a slightly higher handling fee. Tiers are
+// inclusive of the lower bound, exclusive of the upper bound.
+//   < €10,000           -> PRICE_MARKUP_EUR (default 400)
+//   €10,000 – €15,000   -> €500
+//   €15,000 – €20,000   -> €600
+//   €20,000+            -> €700
+const PRICE_MARKUP_TIERS = [
+  { min: 20000, markup: 700 },
+  { min: 15000, markup: 600 },
+  { min: 10000, markup: 500 },
+];
+
+function getMarkupForBaseEur(baseEur) {
+  for (const tier of PRICE_MARKUP_TIERS) {
+    if (baseEur >= tier.min) return tier.markup;
+  }
+  return PRICE_MARKUP_EUR;
+}
+
+// Static fallback used only if the live FX feed is unreachable. Update
+// this whenever the live rate has drifted noticeably; a stale fallback
+// silently overprices every car when the CDN fails.
+//   2024-Q4 average:  ~0.00067
+//   2025 average:     ~0.00062
+//   2026 (today):     ~0.00058
+const FALLBACK_KRW_TO_EUR_RATE = 0.00058;
+
+// Sanity bounds for the live rate. KRW/EUR has stayed inside this band
+// for the last decade; anything outside is almost certainly a bad
+// upstream payload (decimal mistake, currency confusion, broken CDN).
+// We refuse such rates and use the fallback instead.
+const FX_RATE_MIN = 0.0004;   // ~1 EUR = 2,500 KRW (extreme weak KRW)
+const FX_RATE_MAX = 0.0010;   // ~1 EUR = 1,000 KRW (extreme strong KRW)
 const UPSERT_CHUNK_SIZE = 250;
 const DELETE_CHUNK_SIZE = 250;
 const SELECT_PAGE_SIZE = 1000;
@@ -152,6 +187,12 @@ const PRICE_FLOOR_EUR_BY_MAKE = {
 function getPriceFloorEur(makeCanonical) {
   return PRICE_FLOOR_EUR_BY_MAKE[makeCanonical] ?? PRICE_FLOOR_EUR_DEFAULT;
 }
+
+// Hard ceiling. Any listing whose computed EUR price (post-markup) is
+// above this gets dropped entirely — we don't import six-figure cars
+// onto the platform. Override at runtime with SCRAPER_MAX_PRICE_EUR.
+const PRICE_CEILING_EUR =
+  parsePositiveInt(process.env.SCRAPER_MAX_PRICE_EUR) || 50000;
 
 // Headers chosen to closely match what Chrome 122 sends. Encar's WAF
 // returns HTTP 407 for clients that look "too automated" (no cookies,
@@ -275,10 +316,17 @@ const PROXY_COOLDOWN_MS = 60_000;
 async function initClientPool() {
   if (clientPool.length) return clientPool;
   let proxies = [];
-  try {
-    proxies = await loadProxies();
-  } catch (error) {
-    console.warn(`Proxy load failed: ${error.message}`);
+  const proxiesDisabled =
+    process.env.SCRAPER_DISABLE_PROXIES === '1' ||
+    process.env.SCRAPER_DISABLE_PROXIES === 'true';
+  if (proxiesDisabled) {
+    console.log('Proxies disabled via SCRAPER_DISABLE_PROXIES — using direct connection.');
+  } else {
+    try {
+      proxies = await loadProxies();
+    } catch (error) {
+      console.warn(`Proxy load failed: ${error.message}`);
+    }
   }
   if (proxies.length) {
     for (const proxy of proxies) clientPool.push(createEncarClient(proxy));
@@ -408,6 +456,7 @@ const TARGET_MAKES = [
   { key: 'byd', canonicalName: 'BYD', queryManufacturer: 'BYD', aliases: ['byd'] },
   { key: 'aston-martin', canonicalName: 'Aston Martin', queryManufacturer: '애스턴마틴', aliases: ['aston martin', 'aston-martin'] },
   { key: 'ferrari', canonicalName: 'Ferrari', queryManufacturer: '페라리', aliases: ['ferrari', 'ferraria'] },
+  { key: 'volkswagen', canonicalName: 'Volkswagen', queryManufacturer: '폭스바겐', aliases: ['volkswagen', 'vw'] },
 ];
 
 const TARGETS_BY_ALIAS = new Map();
@@ -931,6 +980,11 @@ function enrichRowWithDetail(row, detail, target, exchangeRate) {
   if (typeof adPrice === 'number' && adPrice > 0) {
     const refreshed = convertKrwToEuro(adPrice * 10000, exchangeRate);
     if (refreshed != null) {
+      // Live ad price exceeds the ceiling: drop the listing entirely.
+      if (refreshed > PRICE_CEILING_EUR) {
+        row.__dropAboveCeiling = true;
+        return row;
+      }
       const floor = getPriceFloorEur(target.canonicalName);
       row.price_eur = refreshed >= floor ? refreshed : null;
     }
@@ -969,6 +1023,7 @@ async function enrichBatchWithDetail(batchRows, target, exchangeRate, shared) {
         const detail = await fetchVehicleDetail(row.source_id);
         if (!detail) return { ok: false, gone: true };
         enrichRowWithDetail(row, detail, target, exchangeRate);
+        if (row.__dropAboveCeiling) return { ok: false, dropped: true };
         return { ok: true };
       } catch (error) {
         return { ok: false, error: error.message };
@@ -978,10 +1033,20 @@ async function enrichBatchWithDetail(batchRows, target, exchangeRate, shared) {
   let ok = 0;
   let gone = 0;
   let errored = 0;
+  let dropped = 0;
   for (const r of results) {
     if (r?.__error || r?.error) errored += 1;
     else if (r?.gone) gone += 1;
+    else if (r?.dropped) dropped += 1;
     else if (r?.ok) ok += 1;
+  }
+  // Filter out dropped rows in-place so callers never see them.
+  for (let i = batchRows.length - 1; i >= 0; i -= 1) {
+    if (batchRows[i].__dropAboveCeiling) batchRows.splice(i, 1);
+  }
+  if (dropped > 0) {
+    shared.priceAboveCeiling = (shared.priceAboveCeiling || 0) + dropped;
+    shared.normalizedCount -= dropped;
   }
   shared.detailFetched = (shared.detailFetched || 0) + ok;
   shared.detailGone = (shared.detailGone || 0) + gone;
@@ -1031,7 +1096,9 @@ function convertKrwToEuro(originalPriceKrw, exchangeRate) {
   // a placeholder for listings where the seller hides the price; without
   // this guard those listings would show up as exactly €PRICE_MARKUP_EUR.
   if (!originalPriceKrw || originalPriceKrw <= 0) return null;
-  return Math.round(originalPriceKrw * exchangeRate + PRICE_MARKUP_EUR);
+  const baseEur = originalPriceKrw * exchangeRate;
+  const markup = getMarkupForBaseEur(baseEur);
+  return Math.round(baseEur + markup);
 }
 
 function buildSellerLogo(name) {
@@ -1062,11 +1129,22 @@ function normalizeListing(item, target, exchangeRate) {
   if (!year) errors.push('missing year');
   if (!modelName) errors.push('missing model');
 
-  if (errors.length) return { row: null, errors };
+  const images = buildImageUrls(item);
+  if (images.length <= 1) errors.push('only 1 photo');
 
   // Encar reports Price in 만원 (man-won, ₩10,000). 0 means hidden/"call".
   const priceKrw = priceManwon && priceManwon > 0 ? priceManwon * 10000 : null;
   const computedPriceEur = convertKrwToEuro(priceKrw, exchangeRate);
+
+  // Hard ceiling: drop any listing whose computed price exceeds the cap.
+  // We don't import six-figure cars onto the platform — they hurt the
+  // perceived inventory range and almost never sell through us.
+  if (computedPriceEur != null && computedPriceEur > PRICE_CEILING_EUR) {
+    errors.push(`price €${computedPriceEur} exceeds €${PRICE_CEILING_EUR} ceiling`);
+  }
+
+  if (errors.length) return { row: null, errors };
+
   const priceFloor = getPriceFloorEur(target.canonicalName);
   const priceBelowFloor =
     computedPriceEur != null && computedPriceEur < priceFloor;
@@ -1075,7 +1153,6 @@ function normalizeListing(item, target, exchangeRate) {
   // price as unknown so the UI shows "Kontakto për çmimin".
   const priceEur = priceBelowFloor ? null : computedPriceEur;
 
-  const images = buildImageUrls(item);
   const rawSeller = cleanText(item.OfficeCityState) || null;
   const sellerName = rawSeller ? translateRegion(rawSeller) : null;
   const rawTrim = cleanText(item.Badge) || null;
@@ -1175,7 +1252,16 @@ async function fetchExchangeRate() {
     });
     const rate = toFiniteNumber(response.data?.krw?.eur);
     if (!rate || rate <= 0) throw new Error('Invalid exchange rate payload');
-    console.log(`Live exchange rate: 1 KRW = ${rate} EUR`);
+    if (rate < FX_RATE_MIN || rate > FX_RATE_MAX) {
+      throw new Error(
+        `Live rate ${rate} is outside the sane band ` +
+        `[${FX_RATE_MIN}, ${FX_RATE_MAX}] — refusing to use it`
+      );
+    }
+    console.log(
+      `Live exchange rate: 1 KRW = ${rate} EUR ` +
+      `(1 EUR = ${(1 / rate).toFixed(0)} KRW)`
+    );
     return rate;
   } catch (error) {
     console.warn(`Falling back to static exchange rate (${FALLBACK_KRW_TO_EUR_RATE}): ${error.message}`);

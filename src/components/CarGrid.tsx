@@ -1,4 +1,5 @@
 import styles from "./CarGrid.module.css";
+import Link from "next/link";
 
 type CarItem = {
   img: string;
@@ -6,6 +7,7 @@ type CarItem = {
   details: string;
   price: string;
   badge?: string | null;
+  href?: string;
 };
 
 export default function CarGrid({ title, cars, showOpacity }: { title: string, cars: CarItem[], showOpacity?: boolean }) {
@@ -20,30 +22,66 @@ export default function CarGrid({ title, cars, showOpacity }: { title: string, c
         )}
       </div>
       <div className={styles.mostWantedGrid}>
-        {cars.map((car, i) => (
-          <div key={i} className={styles.listingCard} style={showOpacity ? { opacity: 0.75 } : undefined}>
-            <div className={styles.listingImage}>
-              <img 
-                src={car.img} 
-                alt={car.title} 
-                style={showOpacity ? { filter: 'grayscale(50%)' } : undefined} 
-              />
-              {car.badge && (
-                <span 
-                  className={styles.listingBadge} 
-                  style={showOpacity ? { backgroundColor: '#dc3545', color: '#fff' } : undefined}
+        {cars.map((car, i) => {
+          const CardContent = (
+            <>
+              <div className={styles.listingImage}>
+                <img 
+                  src={car.img} 
+                  alt={car.title} 
+                  style={showOpacity ? { filter: 'grayscale(50%)' } : undefined} 
+                />
+                {car.badge && (
+                  <span 
+                    className={styles.listingBadge} 
+                    style={showOpacity ? { backgroundColor: '#dc3545', color: '#fff' } : undefined}
+                  >
+                    {car.badge}
+                  </span>
+                )}
+              </div>
+              <div className={styles.listingBody}>
+                <div className={styles.listingTitle}>{car.title}</div>
+                <div className={styles.listingDetails}>{car.details}</div>
+                <div className={styles.listingPrice}>{car.price}</div>
+              </div>
+            </>
+          );
+
+          if (car.href) {
+            const isExternal = car.href.startsWith('http');
+            if (isExternal) {
+              return (
+                <a 
+                  key={i} 
+                  href={car.href} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className={styles.listingCard} 
+                  style={{ ...(showOpacity ? { opacity: 0.75 } : {}), textDecoration: 'none', color: 'inherit' }}
                 >
-                  {car.badge}
-                </span>
-              )}
+                  {CardContent}
+                </a>
+              );
+            }
+            return (
+              <Link 
+                key={i} 
+                href={car.href} 
+                className={styles.listingCard} 
+                style={{ ...(showOpacity ? { opacity: 0.75 } : {}), textDecoration: 'none', color: 'inherit' }}
+              >
+                {CardContent}
+              </Link>
+            );
+          }
+
+          return (
+            <div key={i} className={styles.listingCard} style={showOpacity ? { opacity: 0.75 } : undefined}>
+              {CardContent}
             </div>
-            <div className={styles.listingBody}>
-              <div className={styles.listingTitle}>{car.title}</div>
-              <div className={styles.listingDetails}>{car.details}</div>
-              <div className={styles.listingPrice}>{car.price}</div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

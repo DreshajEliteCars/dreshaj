@@ -204,6 +204,25 @@ export async function GET(
     if (!data) return new Response("Car not found", { status: 404 });
     const car = data as Car;
 
+    // Apply the configurable shipping fee from app_settings so the OG
+    // card matches the price displayed on the live site. Falls back to
+    // the in-code default if the row doesn't exist yet.
+    let shipPriceEur = 1300;
+    try {
+      const { data: settings } = await supabase
+        .from("app_settings")
+        .select("ship_price_eur")
+        .eq("id", 1)
+        .maybeSingle();
+      if (settings && typeof settings.ship_price_eur === "number") {
+        shipPriceEur = settings.ship_price_eur;
+      }
+    } catch {
+      // Keep the default — the OG card must always render.
+    }
+    const displayPriceEur =
+      car.price_eur != null ? car.price_eur + shipPriceEur : null;
+
     const photoUrl =
       car.images?.[photoIndex] || car.image_url || car.images?.[0] || null;
 
@@ -216,7 +235,7 @@ export async function GET(
 
     const title = `${car.make} ${car.model}`;
     const trim = car.trim?.trim() || "";
-    const price = formatPriceText(car.price_eur);
+    const price = formatPriceText(displayPriceEur);
     const mileage = formatMileage(car.mileage_km);
     const registration = formatRegistration(
       car.registration_year,

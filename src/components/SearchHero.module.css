@@ -163,28 +163,51 @@
   border-color: var(--color-stroke-strong);
 }
 
-.searchButton {
-  height: 40px;
-  padding: 0 32px;
+.searchButtonFull {
+  width: 100%;
+  height: 48px;
   background-color: var(--button-primary-bg-color);
   color: var(--button-primary-color);
-  font-size: var(--scr-font-size-s);
+  font-size: 16px;
   font-weight: var(--scr-font-weight-bold);
   border-radius: var(--border-radius-m);
-  white-space: nowrap;
   transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.searchButton:hover {
+.searchButtonFull:hover {
   background-color: var(--button-primary-hover-bg-color);
 }
 
+.submitContainer {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.actionLinks {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+}
+
+.clearFiltersBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-and-icon-muted);
+  cursor: pointer;
+  font-size: var(--scr-font-size-s);
+  font-weight: 500;
+  text-decoration: underline;
+}
+
 .refineLink {
-  display: block;
-  text-align: right;
   color: var(--color-text-and-icon-link);
   font-size: var(--scr-font-size-s);
-  padding: 8px 0 4px;
   cursor: pointer;
 }
 
@@ -273,5 +296,37 @@
 }
 
 @media (max-width: 600px) {
-  .searchRow, .searchRow2 { flex-direction: column; }
+  .searchTabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+  }
+  .searchTabs::-webkit-scrollbar {
+    display: none; /* Chrome/Safari/Opera */
+  }
+  .searchTab {
+    flex: 0 0 auto;
+    padding: 12px 16px;
+  }
+  .searchRow {
+    flex-direction: row;
+    gap: 8px;
+  }
+  .searchRow2 {
+    flex-direction: row;
+    gap: 8px;
+  }
+  .europeSelect {
+    flex: 1;
+    min-width: 0;
+  }
+  .cityInput {
+    flex: 1;
+    min-width: 0;
+  }
+  .selectField {
+    padding-left: 8px;
+    padding-right: 20px;
+    font-size: 13px;
+  }
 }

@@ -1,0 +1,91 @@
+# Encar.com -> Supabase scraper.
+#
+# Runs on a cron + manual dispatch. Logs into Supabase via the service-
+# role key (kept in Actions secrets) and refreshes the `cars` table.
+#
+# To enable, configure these repository secrets:
+#
+#   SUPABASE_URL              Supabase project URL
+#   SUPABASE_KEY              service-role key (writes bypass RLS)
+#   SCRAPER_PROXIES           (optional) comma- or newline-separated
+#                             proxy list. Without proxies the scraper
+#                             quickly trips Encar's WAF for makes
+#                             beyond the first; we strongly recommend
+#                             populating this.
+#
+# Optional repository variables (Settings -> Secrets and variables ->
+# Actions -> Variables) to tune per-environment without editing code:
+#
+#   SCRAPER_TARGETS                  comma-separated make aliases
+#   SCRAPER_PAGE_SIZE                default 500, max 1000
+#   SCRAPER_MAX_LISTINGS_PER_MAKE    cap per make for testing
+#   SCRAPER_DETAIL_CONCURRENCY       detail-endpoint concurrency
+#   SCRAPER_SKIP_FRESH_HOURS         default 6
+#   SCRAPER_MAX_PRICE_EUR            default 50000
+
+name: Scraper sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Make aliases (comma-separated). Empty = use carlist.txt."
+        required: false
+        default: ""
+      max_per_make:
+        description: "Cap listings per make. Empty = full sync."
+        required: false
+        default: ""
+  schedule:
+    # Every 6 hours at :15 — staggered slightly off-the-hour so we
+    # don't compete with every other GHA cron starting at HH:00.
+    - cron: "15 */6 * * *"
+
+jobs:
+  sync:
+    name: Encar -> Supabase
+    runs-on: ubuntu-latest
+    # The full sync regularly takes ~25-40 minutes for all 25 makes.
+    # Cap at 90 minutes so a single hung run can't block the next cron.
+    timeout-minutes: 90
+    concurrency:
+      # Never run two scraper jobs in parallel — they'd both upsert the
+      # same rows and double the load on Encar (more 407s, more cooldowns).
+      group: scraper-sync
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scraper/package-lock.json
+
+      - name: Install scraper deps
+        working-directory: scraper
+        run: npm ci
+
+      - name: Write proxy list
+        # The scraper looks for proxy.txt next to scraper.js. If the
+        # secret is unset (early dev/prod), it falls back to direct.
+        if: ${{ secrets.SCRAPER_PROXIES != '' }}
+        env:
+          SCRAPER_PROXIES: ${{ secrets.SCRAPER_PROXIES }}
+        run: printf "%s\n" "$SCRAPER_PROXIES" > scraper/proxy.txt
+
+      - name: Run sync
+        working-directory: scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SCRAPER_TARGETS: ${{ inputs.targets || vars.SCRAPER_TARGETS }}
+          SCRAPER_PAGE_SIZE: ${{ vars.SCRAPER_PAGE_SIZE }}
+          SCRAPER_MAX_LISTINGS_PER_MAKE: ${{ inputs.max_per_make || vars.SCRAPER_MAX_LISTINGS_PER_MAKE }}
+          SCRAPER_DETAIL_CONCURRENCY: ${{ vars.SCRAPER_DETAIL_CONCURRENCY }}
+          SCRAPER_SKIP_FRESH_HOURS: ${{ vars.SCRAPER_SKIP_FRESH_HOURS }}
+          SCRAPER_MAX_PRICE_EUR: ${{ vars.SCRAPER_MAX_PRICE_EUR }}
+        run: node scraper.js

@@ -8,48 +8,102 @@ import Footer from "../components/Footer";
 import styles from "./page.module.css";
 import Link from "next/link";
 import { useLanguage } from "../context/LanguageContext";
-
-const DUMMY_CARS = [
-  {
-    img: "/images/listing-1.png",
-    badge: "AUTOFLEX24",
-    title: "Volkswagen Tiguan 2.0 TDI",
-    details: "2021 · 45,000 km · Diesel · 150 HP",
-    price: "€28,900",
-  },
-  {
-    img: "/images/listing-2.png",
-    badge: null,
-    title: "BMW 320d xDrive Touring",
-    details: "2020 · 62,000 km · Diesel · 190 HP",
-    price: "€32,500",
-  },
-  {
-    img: "/images/listing-3.png",
-    badge: null,
-    title: "Volkswagen Golf 1.5 TSI",
-    details: "2022 · 28,000 km · Petrol · 130 HP",
-    price: "€24,700",
-  },
-  {
-    img: "/images/listing-4.png",
-    badge: null,
-    title: "Audi Q5 40 TDI quattro",
-    details: "2021 · 38,000 km · Diesel · 204 HP",
-    price: "€41,900",
-  },
-];
+import { useState, useEffect } from "react";
+import { getSupabase } from "../lib/supabase";
+import { useShipPrice } from "../lib/useShipPrice";
+import { applyShipPrice } from "../lib/appSettings";
 
 export default function Home() {
   const { t } = useLanguage();
+  const [localCars, setLocalCars] = useState<any[]>([]);
+  const [famousCars, setFamousCars] = useState<any[]>([]);
+  const shipPrice = useShipPrice();
+
+  useEffect(() => {
+    async function fetchLocalCars() {
+      const supabase = getSupabase();
+      if (!supabase) return;
+
+      const { data } = await supabase
+        .from('local_cars')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(8);
+
+      if (data) {
+        setLocalCars(data);
+      }
+    }
+    async function fetchFamousCars() {
+      const supabase = getSupabase();
+      if (!supabase) return;
+
+      // Fetch a mix of famous brands, sorted by newest or most photos
+      const { data } = await supabase
+        .from('cars')
+        .select('*')
+        .in('make', ['BMW', 'Volkswagen', 'Mercedes-Benz', 'Audi'])
+        .order('photo_count', { ascending: false })
+        .limit(4);
+
+      if (data) {
+        setFamousCars(data);
+      }
+    }
+    fetchLocalCars();
+    fetchFamousCars();
+  }, []);
+
+  const localCarItems = localCars.map(c => {
+    const parts = [];
+    if (c.registration_year) parts.push(c.registration_year);
+    if (c.mileage_km) parts.push(`${new Intl.NumberFormat("en-US").format(c.mileage_km)} km`);
+    if (c.fuel_type) parts.push(c.fuel_type);
+
+    return {
+      img: c.image_url,
+      title: c.title,
+      details: parts.join(" · "),
+      price: t("price_on_request") || "Kontakto për çmimin",
+      badge: null,
+      href: "https://wa.me/37744202673"
+    };
+  });
+
+  const famousCarItems = famousCars.map(c => {
+    const parts = [];
+    if (c.registration_year) parts.push(c.registration_year);
+    if (c.mileage_km) parts.push(`${new Intl.NumberFormat("en-US").format(c.mileage_km)} km`);
+    if (c.fuel_type) parts.push(c.fuel_type);
+    if (c.power_hp) parts.push(`${c.power_hp} HP`);
+
+    const finalPrice = applyShipPrice(c.price_eur, shipPrice);
+    const priceStr = finalPrice != null ? `€${new Intl.NumberFormat("en-US").format(finalPrice)}` : t("price_on_request") || "Kontakto për çmimin";
+
+    const thumbnail = c.image_url || (c.images && c.images[0]) || "/cars/sedan_1x_car.png";
+
+    return {
+      img: thumbnail,
+      title: `${c.make} ${c.model} ${c.trim || ''}`.trim(),
+      details: parts.join(" · "),
+      price: priceStr,
+      badge: null,
+      href: `/cars/${encodeURIComponent(c.source_id)}`
+    };
+  });
+
   return (
     <>
       <Header />
       <SearchHero />
       <div className={styles.mainContent}>
         <BodyTypeGrid />
-        <CarGrid title={t("most_wanted")} cars={DUMMY_CARS} showOpacity={false} />
-        <CarGrid title={t("recently_sold")} cars={DUMMY_CARS.map(c => ({ ...c, badge: "SHITUR" }))} showOpacity={true} />
+        {famousCarItems.length > 0 && (
+          <CarGrid title={t("most_wanted")} cars={famousCarItems} showOpacity={false} />
+        )}
+        {localCarItems.length > 0 && (
+          <CarGrid title={t("in_stock_peja")} cars={localCarItems} showOpacity={false} />
+        )}
 
         {/* CALCULATOR BANNER */}
         <div className={styles.calcBanner}>
