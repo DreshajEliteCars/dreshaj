@@ -118,6 +118,31 @@ function CarDetailInner({ id }: { id: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [goPrev, goNext, images.length]);
 
+  // Preload every gallery image into the HTTP cache as soon as we know
+  // the car's photo list. We render the images stacked in the DOM
+  // below (only the active one is visible), but `new Image()` is a
+  // belt-and-braces measure: even if the browser decides not to keep a
+  // hidden <img>'s bitmap decoded, the bytes will still be in cache, so
+  // the next/prev swap stays instant instead of triggering a fresh
+  // network round-trip on first visit.
+  useEffect(() => {
+    if (!images.length) return;
+    const preloaders: HTMLImageElement[] = [];
+    for (const src of images) {
+      const img = new Image();
+      img.src = src;
+      // decode() forces the browser to fully decode the bitmap. We
+      // ignore the promise — failures (CORS, aborted nav, etc.) just
+      // fall back to the regular load path on the visible <img>.
+      if (typeof img.decode === "function") img.decode().catch(() => {});
+      preloaders.push(img);
+    }
+    return () => {
+      // Drop refs so GC can reclaim if the user navigates away mid-load.
+      preloaders.length = 0;
+    };
+  }, [images]);
+
 
   /**
    * Copy the current car URL to the clipboard and flash a toast.
@@ -196,7 +221,9 @@ function CarDetailInner({ id }: { id: string }) {
     car.registration_month
   );
   const priceText = formatPrice(applyShipPrice(car.price_eur, shipPrice), t("price_on_request"));
-  const mainImage = images[activeIndex] ?? car.image_url;
+  // Fallback for cars whose `images[]` is empty but that still have an
+  // `image_url` (older rows scraped before the gallery enrichment).
+  const fallbackImage = images.length === 0 ? car.image_url : null;
 
   const sidebarContent = (
     <>
@@ -305,12 +332,41 @@ function CarDetailInner({ id }: { id: string }) {
           {/* ---------- Left column: gallery + specs ---------- */}
           <div className={styles.leftColumn}>
             <div className={styles.gallery}>
-              {mainImage ? (
+              {images.length > 0 ? (
+                // Stack every photo absolutely; only the active one is
+                // visible (opacity 1). Keeping all <img> elements in
+                // the DOM means the browser holds onto each decoded
+                // bitmap, so flipping `activeIndex` is a free CSS
+                // class swap — no network, no decode, no jank. The
+                // current image gets fetchpriority="high" so it still
+                // appears first on initial paint; the rest fill in
+                // behind with low priority so they don't steal
+                // bandwidth from above-the-fold content.
+                images.map((src, i) => {
+                  const isActive = i === activeIndex;
+                  return (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      key={src}
+                      src={src}
+                      alt={`${car.make} ${car.model} ${i + 1}`}
+                      className={`${styles.mainImage} ${isActive ? styles.mainImageActive : ""}`}
+                      loading="eager"
+                      decoding="async"
+                      // `fetchpriority` is camelCase in React 19+; cast
+                      // for older type defs that don't know it yet.
+                      {...({ fetchpriority: isActive ? "high" : "low" } as Record<string, string>)}
+                      draggable={false}
+                      aria-hidden={!isActive}
+                    />
+                  );
+                })
+              ) : fallbackImage ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
-                  src={mainImage}
+                  src={fallbackImage}
                   alt={`${car.make} ${car.model}`}
-                  className={styles.mainImage}
+                  className={`${styles.mainImage} ${styles.mainImageActive}`}
                 />
               ) : (
                 <div className={styles.noImage}>—</div>

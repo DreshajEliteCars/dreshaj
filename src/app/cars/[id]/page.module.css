@@ -45,11 +45,28 @@
   aspect-ratio: 4 / 3;
 }
 .mainImage {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
   background: #e5e7eb;
+  /* Hidden by default — only `.mainImageActive` flips opacity to 1.
+     We keep every photo mounted so the browser caches its decoded
+     bitmap and switching between them is instant. */
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+  pointer-events: none;
+  /* Belt-and-braces hint that off-screen layers won't paint. */
+  visibility: hidden;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.mainImageActive {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
 }
 .noImage {
   width: 100%;
