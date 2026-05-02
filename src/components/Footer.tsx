@@ -61,10 +61,10 @@ export default function Footer() {
             <div className={styles.classicRight}>
               <div className={styles.classicHeader}>{t("location")}</div>
               <iframe 
-                src="https://maps.google.com/maps?q=Bulevardi%20Nena%20Tereza,%20Pristina&t=&z=14&ie=UTF8&iwloc=&output=embed" 
-                width="260" 
+                src="https://maps.google.com/maps?q=34%20Smail%20Quku,%20Nabërgjan%2030000&t=&z=15&ie=UTF8&iwloc=&output=embed" 
+                width="140" 
                 height="140" 
-                style={{ border: 0, borderRadius: '8px', display: 'inline-block' }} 
+                style={{ border: 0, borderRadius: '8px', display: 'block', maxWidth: '100%' }} 
                 allowFullScreen 
                 loading="lazy" 
                 referrerPolicy="no-referrer-when-downgrade"
