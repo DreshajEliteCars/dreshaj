@@ -65,6 +65,13 @@ const PAGE_SIZE = parsePositiveInt(process.env.SCRAPER_PAGE_SIZE) || 500;
 const MAX_RETRIES = parsePositiveInt(process.env.SCRAPER_MAX_RETRIES) || 5;
 const PRICE_MARKUP_EUR = parsePositiveInt(process.env.SCRAPER_PRICE_MARKUP_EUR) || 400;
 
+// Hard cap on how many listings to fetch per make. Prevents runaway syncs
+// (e.g. Kia/Hyundai with 30k+ listings). The env var overrides this default.
+// Set to 0 or Infinity in code (or omit the env var) for unlimited — but
+// the default 500 protects against accidental full-catalogue scrapes.
+const MAX_LISTINGS_PER_MAKE =
+  parsePositiveInt(process.env.SCRAPER_MAX_LISTINGS_PER_MAKE) || 500;
+
 // Tiered markup applied on top of the base markup based on the converted
 // EUR price (pre-markup). Mirrors a typical importer fee structure where
 // higher-value cars carry a slightly higher handling fee. Tiers are
@@ -1704,8 +1711,7 @@ function createFetchOptions(options = {}) {
     pageSize: Math.min(requestedPageSize, ENCAR_MAX_PAGE_SIZE),
     maxListingsPerMake:
       parsePositiveInt(options.maxListingsPerMake) ||
-      parsePositiveInt(process.env.SCRAPER_MAX_LISTINGS_PER_MAKE) ||
-      null,
+      MAX_LISTINGS_PER_MAKE,
   };
 }
 
