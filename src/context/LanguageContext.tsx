@@ -12,6 +12,8 @@ interface TranslationDictionary {
 }
 
 export const translations: TranslationDictionary = {
+  nav_warranty: { sq: "Garancioni", en: "Warranty" },
+  nav_calculator: { sq: "Kalkulatori i Doganës", en: "Customs Calculator" },
   customs_calc: { sq: "Kalkulatori i doganës", en: "Customs Calculator" },
   customs_calc_title: { sq: "Llogaritni taksat doganore", en: "Calculate customs taxes" },
   customs_calc_desc: { sq: "Llogaritni shpenzimet e doganës dhe regjistrimit për automjetin tuaj në vetëm pak sekonda.", en: "Calculate customs and registration fees for your vehicle in just a few seconds." },

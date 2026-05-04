@@ -20,7 +20,7 @@ export default function Footer() {
             </div>
             <div className={styles.classicColTitle}>{t("company")}</div>
             <ul className={styles.classicLinks}>
-              <li><a href="#">{t("about")}</a></li>
+              <li><Link href="/about">{t("about")}</Link></li>
               <li><Link href="/contact">{t("contact")}</Link></li>
               <li><a href="/garancioni">{t("data_protection")}</a></li>
             </ul>

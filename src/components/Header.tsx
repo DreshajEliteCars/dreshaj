@@ -42,6 +42,8 @@ export default function Header() {
             <nav className={styles.headerNav}>
               <Link href="/">{t("home")}</Link>
               <Link href="/contact">{t("contact")}</Link>
+              <Link href="/garancioni">{t("nav_warranty")}</Link>
+              <Link href="/kalkulatori">{t("nav_calculator")}</Link>
             </nav>
           </div>
           <div className={styles.headerRight}>
@@ -82,6 +84,12 @@ export default function Header() {
             </Link>
             <Link href="/contact" className={styles.mobileMenuItem} onClick={() => setMenuOpen(false)}>
               {t("contact")}
+            </Link>
+            <Link href="/garancioni" className={styles.mobileMenuItem} onClick={() => setMenuOpen(false)}>
+              {t("nav_warranty")}
+            </Link>
+            <Link href="/kalkulatori" className={styles.mobileMenuItem} onClick={() => setMenuOpen(false)}>
+              {t("nav_calculator")}
             </Link>
             <div className={styles.mobileMenuItem} style={{ position: 'relative' }}>
               <select 

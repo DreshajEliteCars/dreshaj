@@ -1,0 +1,223 @@
+.pageWrapper {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+  zoom: 0.8;
+}
+
+/* Back link */
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-primary-default, #0050d2);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 8px 0;
+  margin-bottom: 32px;
+}
+.backLink:hover { text-decoration: underline; }
+
+/* ---- Hero ---- */
+.hero {
+  margin-bottom: 48px;
+}
+.heroLabel {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary-default, #0050d2);
+  margin-bottom: 10px;
+}
+.heroTitle {
+  font-size: 40px;
+  font-weight: 700;
+  color: #1a232f;
+  margin: 0 0 16px;
+  line-height: 1.15;
+}
+.heroDesc {
+  font-size: 16px;
+  color: #4b5563;
+  line-height: 1.75;
+  max-width: 680px;
+}
+
+/* ---- Stats ---- */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 56px;
+}
+.statCard {
+  background: #fff;
+  border: 1px solid #e1e5e8;
+  border-radius: 10px;
+  padding: 24px 20px;
+  text-align: center;
+}
+.statValue {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1a232f;
+  margin-bottom: 6px;
+}
+.statLabel {
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* ---- Section title ---- */
+.sectionTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a232f;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #e1e5e8;
+}
+
+/* ---- Values ---- */
+.valuesGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 48px;
+}
+.valueCard {
+  background: #fff;
+  border: 1px solid #e1e5e8;
+  border-radius: 10px;
+  padding: 24px;
+}
+.valueIcon {
+  width: 44px;
+  height: 44px;
+  background: #eff6ff;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary-default, #0050d2);
+  margin-bottom: 14px;
+}
+.valueTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a232f;
+  margin-bottom: 8px;
+}
+.valueDesc {
+  font-size: 14px;
+  color: #6b7280;
+  line-height: 1.65;
+}
+
+/* ---- How it works ---- */
+.stepsCard {
+  background: #fff;
+  border: 1px solid #e1e5e8;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 48px;
+}
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 24px 28px;
+  border-bottom: 1px solid #f0f2f4;
+}
+.step:last-child { border-bottom: none; }
+.stepNum {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primary-default, #0050d2);
+  background: #eff6ff;
+  border-radius: 6px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+.stepTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a232f;
+  margin-bottom: 4px;
+}
+.stepDesc {
+  font-size: 14px;
+  color: #6b7280;
+  line-height: 1.6;
+}
+
+/* ---- CTA ---- */
+.cta {
+  background: #1a232f;
+  border-radius: 12px;
+  padding: 36px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.ctaText {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+.ctaBtns {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.ctaBtnPrimary {
+  display: inline-flex;
+  align-items: center;
+  padding: 12px 22px;
+  background: var(--color-primary-default, #0050d2);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+.ctaBtnPrimary:hover { background: #003fa3; }
+.ctaBtnSecondary {
+  display: inline-flex;
+  align-items: center;
+  padding: 12px 22px;
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid rgba(255,255,255,0.2);
+  transition: background 0.2s;
+}
+.ctaBtnSecondary:hover { background: rgba(255,255,255,0.18); }
+
+/* ---- Responsive ---- */
+@media (max-width: 700px) {
+  .statsGrid { grid-template-columns: repeat(2, 1fr); }
+  .valuesGrid { grid-template-columns: 1fr; }
+  .heroTitle { font-size: 28px; }
+  .cta {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 28px 24px;
+  }
+  .ctaBtns { flex-direction: column; width: 100%; }
+  .ctaBtnPrimary, .ctaBtnSecondary { justify-content: center; }
+}
+@media (max-width: 480px) {
+  .statsGrid { grid-template-columns: repeat(2, 1fr); }
+  .step { padding: 18px 20px; }
+}
