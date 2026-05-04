@@ -1,6 +1,6 @@
 export const brandModels: Record<string, string[]> = {
   "Volkswagen": [
-    "Arteon","Atlas","Beetle","CC","Corrado","Eos","Golf","ID.4","ID.5",
+    "Arteon","Atlas","Beatle","Beetle","CC","Corrado","Eos","Golf","ID.4","ID.5",
     "Jetta","Microbus","Multivan","Passat","Phaeton","Polo","Rialta",
     "Scirocco","Sharan","T-Roc","Tiguan","Touareg","Transporter","up!","Vento",
   ],
@@ -8,7 +8,7 @@ export const brandModels: Record<string, string[]> = {
     "1-Series","1M","2-Series","3-Series","4-Series","5-Series","6-Series",
     "7-Series","8-Series","Gran Turismo","i3","i4","i5","i7","i8",
     "iX","iX1","iX2","iX3","M2","M3","M4","M5","M6","M8","M Coupe/Roadster",
-    "X1","X2","X3","X3M","X4","X4M","X5","X5M","X6","X6M","X7","XM","Z3","Z4","Z8",
+    "X1","X2","X2 (F39)","X3","X3M","X4","X4M","X5","X5M","X6","X6M","X7","XM","Z3","Z4","Z8",
   ],
   "Mercedes-Benz": [
     "190-Class","A-Class","AMG GT","B-Class","C-Class","CL-Class","CLA-Class",
@@ -43,7 +43,7 @@ export const brandModels: Record<string, string[]> = {
   ],
   "Ford": [
     "Bronco","Contour","E-Series","Econoline","EcoSport","Escape",
-    "Expedition","Explorer","Explorer Sport Trac","F-150","F-250",
+    "Expedition","Explorer","Explorer Sport Trac","F-150","F150","F-250",
     "F-350","Fiesta","Five Hundred","Flex","Focus","Freestyle","Fusion",
     "GT","Kuga","Mondeo","Mustang","Probe","Ranger","S-MAX","Taurus",
     "Thunderbird","Transit","Windstar",
@@ -54,7 +54,14 @@ export const brandModels: Record<string, string[]> = {
     "Legend","Life","N-BOX","N-ONE","Odyssey","Passport","Pilot","Prelude",
     "Ridgeline","S2000","S660","Stepwgn","Stream","That's",
   ],
-  "Hyundai": [],
+  "Hyundai": [
+    "Accent","Aslan","Avante","AVANTE","Azera","Casper","Click","Creta","Elantra",
+    "Equus","Galloper","Genesis","Getz","Grand Starex","Grandeur","Ioniq","Ioniq 5",
+    "Ioniq 6","Kona","Lavita","Libero","Maxcruz","Mighty","Nexo","Palisade",
+    "Porter","Santa Fe","Santafe","Solati","Sonata","Starex","Staria",
+    "Terracan","Tiburon","Trajet","Tucson","Tuscani","Veloster","Venue",
+    "Veracruz","Verna","Xcient"
+  ],
   "Jaguar": [
     "Daimler","E-PACE","E-TYPE","F-PACE","F-TYPE","I-PACE","S-TYPE",
     "Sovereign","XE","XF","XJ","XJ-6","XJ-8","XJ-C","XJR","XJS","XK",
@@ -65,7 +72,7 @@ export const brandModels: Record<string, string[]> = {
     "Patriot","Renegade","Wrangler",
   ],
   "Kia": [
-    "Avella","Bisto","Bongo III Minibus","Brisa","Capital","Carens","Carnival",
+    "Avella","Bisto","Bongo III Minibus","Brisa","Canival","Capital","Carens","Carnival",
     "Carstar","Ceed","Cerato","Concord","Credos","Delta","Elan","Enterprise",
     "EV3","EV4","EV5","EV6","EV9","Fiat 132","Forte","K3","K5","K7","K8","K9",
     "Mohave","Morning","Niro","Opirus","Optima","Parktown","Potentia","Pregio",
@@ -86,20 +93,20 @@ export const brandModels: Record<string, string[]> = {
     "Armada","Bluebird","Bluebird Sylphy","Cedric","Cefiro","Cima",
     "Cube","Elgrand","Figaro","Frontier","Fuga","GT-R","Juke",
     "Lafesta","Laurel","Leaf","Maxima","Moco","Murano","Note",
-    "NV","Pao","Pathfinder","Prairie","President","Pulsar","Qashqai",
+    "NV","Others","Pao","Pathfinder","Prairie","President","Pulsar","Qashqai",
     "Quest","Rogue","Sentra","Serena","Silvia","Skyline","Stagea",
     "Teana","Titan","Versa","Wingroad","X-Trail","Xterra",
   ],
-  "Peugeot": [],
+  "Peugeot": [
+    "108","208","308","408","508","2008","3008","5008","RCZ","Rifter","Traveller",
+  ],
   "Porsche": [
     "718","911","928","944","968","Boxster","Carrera GT","Cayenne","Cayman","Macan","Panamera","Taycan",
   ],
   "Renault": [
-    "Alpine","Clio","Laguna","Megane","Talisman",
-  ],
-  "Renault Samsung": [
-    "Arkana","Captur","Clio","Filante","Koleos","Master","QM3","QM5","QM6",
-    "Scenic","SM3","SM5","SM6","SM7","Twizy","XM3","ZOE",
+    "Alpine","Arkana","Captur","Cilo","Clio","Filante","Grand Koleos","Koleos","Laguna","Master",
+    "Megane","QM3","QM5","QM6","Scenic","SM3","SM5","SM6","SM7",
+    "Talisman","Twizy","XM3","ZOE",
   ],
   "Smart": [
     "Forfour","Fortwo","Roadster",
@@ -112,7 +119,7 @@ export const brandModels: Record<string, string[]> = {
     "Cybertruck","Model 3","Model S","Model X","Model Y",
   ],
   "Toyota": [
-    "4Runner","86","Alphard","Altezza","Aristo","Avalon","bB","C-HR","Cami",
+    "4Runner","86","Alphard","Altezza","Aristo","Avalon","AYGO","bB","C-HR","Cami",
     "Camry","Carina","Celica","Celsior","Chaser","Corona","Corolla","Corsa",
     "Crown","Esquire","Estima","FJ Cruiser","Fun Cargo","Gaia","Harrier","Hiace",
     "Highlander","Hilux Surf","iQ","Ipsum","Isis","ist","Land Cruiser","Mark II",

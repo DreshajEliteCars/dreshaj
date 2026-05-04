@@ -186,7 +186,7 @@ const PRICE_FLOOR_EUR_BY_MAKE = {
   // Korean OEMs — keep floor low; legit cheap cars exist.
   'Hyundai': 600,
   'Kia': 600,
-  'Renault Korea': 600,
+  'Renault': 600,
   // Niche
   'BYD': 5000,
   'Suzuki': 1000,
@@ -449,7 +449,7 @@ const TARGET_MAKES = [
   { key: 'mazda', canonicalName: 'Mazda', queryManufacturer: '마쯔다', aliases: ['mazda'] },
   { key: 'nissan', canonicalName: 'Nissan', queryManufacturer: '닛산', aliases: ['nissan'] },
   { key: 'peugeot', canonicalName: 'Peugeot', queryManufacturer: '푸조', aliases: ['peugeot', 'pezho'] },
-  { key: 'renault-korea', canonicalName: 'Renault Korea', queryManufacturer: '르노코리아(삼성)', aliases: ['renault', 'renault samsung', 'renault-samsung', 'samsung renault'] },
+  { key: 'renault', canonicalName: 'Renault', queryManufacturer: '르노코리아(삼성)', aliases: ['renault', 'renault samsung', 'renault-korea', 'samsung renault'] },
   { key: 'volvo', canonicalName: 'Volvo', queryManufacturer: '볼보', aliases: ['volvo'] },
   { key: 'suzuki', canonicalName: 'Suzuki', queryManufacturer: '스즈키', aliases: ['suzuki'] },
   { key: 'tesla', canonicalName: 'Tesla', queryManufacturer: '테슬라', aliases: ['tesla'] },

@@ -24,7 +24,7 @@ const TARGETS = [
   ["Mazda", "마쯔다"],
   ["Nissan", "닛산"],
   ["Peugeot", "푸조"],
-  ["Renault Korea", "르노코리아(삼성)"],
+  ["Renault", "르노코리아(삼성)"],
   ["Volvo", "볼보"],
   ["Suzuki", "스즈키"],
   ["Tesla", "테슬라"],
