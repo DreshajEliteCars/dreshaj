@@ -935,11 +935,25 @@ function enrichRowWithDetail(row, detail, target, exchangeRate) {
   if (!detail) return row;
 
   // ---- photos: replace the 4-photo sample with the full gallery ----
+  // Encar tags each photo with a `type`: OUTER (exterior), INNER (interior),
+  // OPTION (detail shots — wheels, buttons, badges). We sort so OUTER
+  // photos come first (by ascending code), then INNER, then OPTION. This
+  // ensures `image_url` (= first photo) is always a clean exterior shot
+  // rather than a random close-up of a wheel or start button.
   if (Array.isArray(detail.photos) && detail.photos.length) {
+    const TYPE_ORDER = { OUTER: 0, INNER: 1, OPTION: 2 };
+    const sorted = detail.photos
+      .filter((p) => p?.path)
+      .sort((a, b) => {
+        const ta = TYPE_ORDER[a.type] ?? 3;
+        const tb = TYPE_ORDER[b.type] ?? 3;
+        if (ta !== tb) return ta - tb;
+        // Within the same type, sort by code ascending so "001" (the
+        // canonical front 3/4 hero shot) comes before "002", "003", etc.
+        return (a.code || '').localeCompare(b.code || '');
+      });
     const urls = uniqueItems(
-      detail.photos
-        .filter((p) => p?.path)
-        .map((p) => `${ENCAR_IMAGE_HOST}${p.path}`)
+      sorted.map((p) => `${ENCAR_IMAGE_HOST}${p.path}`)
     );
     if (urls.length) {
       row.images = urls;
