@@ -31,19 +31,22 @@ export default function CarGrid({ title, cars, showOpacity }: { title: string, c
                   alt={car.title} 
                   style={showOpacity ? { filter: 'grayscale(50%)' } : undefined} 
                 />
-                {car.badge && (
-                  <span 
-                    className={styles.listingBadge} 
-                    style={showOpacity ? { backgroundColor: '#dc3545', color: '#fff' } : undefined}
-                  >
-                    {car.badge}
-                  </span>
-                )}
               </div>
               <div className={styles.listingBody}>
                 <div className={styles.listingTitle}>{car.title}</div>
                 <div className={styles.listingDetails}>{car.details}</div>
-                <div className={styles.listingPrice}>{car.price}</div>
+                <div className={styles.priceContainer}>
+                  <div className={styles.listingPrice}>{car.price}</div>
+                  {car.badge && (
+                    <span className={styles.listingBadgeInline}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop: '-1px' }}>
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                        <circle cx="12" cy="10" r="3"></circle>
+                      </svg>
+                      {car.badge}
+                    </span>
+                  )}
+                </div>
               </div>
             </>
           );

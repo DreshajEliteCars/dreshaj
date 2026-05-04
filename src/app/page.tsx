@@ -87,7 +87,7 @@ export default function Home() {
       title: `${c.make} ${c.model} ${c.trim || ''}`.trim(),
       details: parts.join(" · "),
       price: priceStr,
-      badge: null,
+      badge: "Deri në Durrës",
       href: `/cars/${encodeURIComponent(c.source_id)}`
     };
   });
