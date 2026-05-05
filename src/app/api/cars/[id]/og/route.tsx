@@ -1,6 +1,8 @@
 import { ImageResponse } from "next/og";
 import { createClient } from "@supabase/supabase-js";
 import { Car } from "../../../../../lib/cars";
+import { readFile } from "fs/promises";
+import { join } from "path";
 
 /**
  * Render an Instagram-friendly share card for one car listing.
@@ -233,6 +235,70 @@ export async function GET(
       ? await fetchPhotoAsDataUrl(photoUrl)
       : null;
 
+    // Fetch logo from disk and prepare it for the white card footer.
+    //
+    // The source logo is white-on-transparent (designed for dark headers
+    // on the live site). If we just flatten it onto white it disappears.
+    // Satori also drops PNGs with an alpha channel silently, so we have
+    // to produce a fully-opaque image. The trick: use the original alpha
+    // channel as a mask and paint black wherever the logo had any
+    // opacity, then flatten that onto white. End result is a black-on-
+    // white version of the logo that's visible on the card footer.
+    let logoDataUrl: string | null = null;
+    try {
+      const logoBuffer = await readFile(join(process.cwd(), "public", "images", "logo.png"));
+      const sharp = (await import("sharp")).default;
+      // Trim transparent / uniform borders from the source PNG so the
+      // logo content fills the buffer. Without this the logo looks
+      // floating/centered inside the <img> element on the OG card
+      // because the source asset has padding around the actual artwork.
+      const trimmedLogo = await sharp(logoBuffer)
+        .ensureAlpha()
+        .trim()
+        .toBuffer();
+      const meta = await sharp(trimmedLogo).metadata();
+      const w = meta.width ?? 280;
+      const h = meta.height ?? 96;
+      // Pull the alpha channel out as a single-channel grayscale buffer.
+      const alphaBuffer = await sharp(trimmedLogo)
+        .ensureAlpha()
+        .extractChannel("alpha")
+        .toBuffer();
+      // Build a solid-black RGB canvas the same size, then re-attach the
+      // logo's alpha so only the logo shape is opaque.
+      const blackOnTransparent = await sharp({
+        create: {
+          width: w,
+          height: h,
+          channels: 3,
+          background: { r: 0, g: 0, b: 0 },
+        },
+      })
+        .joinChannel(alphaBuffer)
+        .png()
+        .toBuffer();
+      // Finally flatten onto white so we hand Satori a fully-opaque PNG.
+      const flattenedBuffer = await sharp(blackOnTransparent)
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .png()
+        .toBuffer();
+      logoDataUrl = `data:image/png;base64,${flattenedBuffer.toString("base64")}`;
+    } catch (e) {
+      // sharp not available or failed — fall back to raw buffer. The
+      // logo may render as white-on-white in this case but that's no
+      // worse than today's behavior and the rest of the card still works.
+      console.warn(
+        "[og] sharp recolor failed, using raw logo:",
+        e instanceof Error ? e.message : e
+      );
+      try {
+        const logoBuffer = await readFile(join(process.cwd(), "public", "images", "logo.png"));
+        logoDataUrl = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+      } catch {
+        console.warn("[og] Could not load logo.png");
+      }
+    }
+
     const title = `${car.make} ${car.model}`;
     const trim = car.trim?.trim() || "";
     const price = formatPriceText(displayPriceEur);
@@ -261,12 +327,15 @@ export async function GET(
           fontFamily: "Inter, system-ui, -apple-system, sans-serif",
         }}
       >
-        {/* ---- Photo (top 64% of canvas) ---- */}
+        {/* ---- Photo (top ~55% of canvas) ----
+            Height tuned so the info panel below has enough room for the
+            title, price, 2×2 specs, AND the larger footer logo without
+            overflow clipping the bottom branding. */}
         <div
           style={{
             display: "flex",
             width: "100%",
-            height: 864,
+            height: 720,
             background: "#0f172a",
             position: "relative",
             overflow: "hidden",
@@ -277,7 +346,7 @@ export async function GET(
             <img
               src={photoDataUrl}
               width={1080}
-              height={864}
+              height={720}
               style={{
                 width: "100%",
                 height: "100%",
@@ -358,24 +427,47 @@ export async function GET(
             )}
           </div>
 
-          {/* Price */}
-          <div
-            style={{
-              fontSize: 64,
-              fontWeight: 800,
-              color: ACCENT,
-              lineHeight: 1,
-              letterSpacing: -1,
-              display: "flex",
-            }}
-          >
-            {price}
+          {/* Price & Badge */}
+          <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 8 }}>
+            <div
+              style={{
+                fontSize: 64,
+                fontWeight: 800,
+                color: ACCENT,
+                lineHeight: 1,
+                letterSpacing: -1,
+                display: "flex",
+              }}
+            >
+              {price}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 16px",
+                backgroundColor: "#f1f5f9",
+                color: "#475569",
+                borderRadius: 999,
+                fontSize: 22,
+                fontWeight: 600,
+                marginTop: 6,
+              }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                <circle cx="12" cy="10" r="3" />
+              </svg>
+              <span style={{ display: "flex" }}>Deri në Durrës</span>
+            </div>
           </div>
 
           {/* Specs 2×2 (flex rows — Satori doesn't support CSS Grid) */}
           <div
             style={{
-              marginTop: 8,
+              marginTop: 16,
               display: "flex",
               flexDirection: "column",
               gap: 12,
@@ -391,22 +483,28 @@ export async function GET(
             </div>
           </div>
 
-          {/* Footer / branding */}
+          {/* Footer / branding — just the logo, centered. */}
           <div
             style={{
               marginTop: "auto",
               display: "flex",
-              justifyContent: "space-between",
               alignItems: "center",
+              justifyContent: "center",
               paddingTop: 16,
+              marginBottom: 8,
               borderTop: `1px solid ${STROKE}`,
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div style={{ fontSize: 18, color: MUTED, fontWeight: 500, display: "flex" }}>
-                Dreshaj Elite Cars
-              </div>
-            </div>
+            {logoDataUrl && (
+              // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+              <img
+                src={logoDataUrl}
+                alt="Dreshaj Elite Cars"
+                width={360}
+                height={120}
+                style={{ display: "flex", objectFit: "contain" }}
+              />
+            )}
           </div>
         </div>
       </div>
