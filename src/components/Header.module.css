@@ -17,6 +17,7 @@
   justify-content: space-between;
   height: 64px;
   padding: 0 16px;
+  overflow: hidden;
 }
 
 .headerLeft {
@@ -121,7 +122,7 @@
     margin-left: -30px;
   }
   .logo img {
-    width: 150px;
+    width: 140px;
     height: auto;
   }
 }
@@ -144,6 +145,7 @@
   }
   .logo img {
     width: 120px;
+    height: auto;
   }
 }
 

@@ -411,21 +411,42 @@
   }
 }
 
+/* Wrapper around the diagram + legend + unmapped list. */
+.inspDiagramWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .inspDiagram {
   position: relative;
   background: #f8f9fa;
   border-radius: var(--radius-md);
-  padding: 16px;
+  padding: 16px 36px 28px; /* room for arrows + page-dot pager */
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 180px;
 }
-.inspDiagram img {
-  max-width: 100%;
-  max-height: 240px;
-  object-fit: contain;
+/* The actual image-bound rectangle. Markers position absolute against
+   THIS element, not the padded container, so percentages map exactly
+   to the silhouette. The aspect-ratio matches Encar's GIF source —
+   img_inspection0{1,2}.gif are both 254×282 (portrait). With this
+   exact ratio + `object-fit: contain` the image fills the frame
+   without letterboxing, so a marker at "(16%, 18%)" lands exactly
+   where the front-fender-left would be on the silhouette. */
+.inspDiagramFrame {
+  position: relative;
+  width: 100%;
+  max-width: 300px;
+  aspect-ratio: 254 / 282;
   display: block;
+}
+.inspDiagramFrame img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  pointer-events: none; /* clicks fall through to markers */
 }
 .inspDiagramOverlay {
   position: absolute;
@@ -440,6 +461,181 @@
   padding: 4px 10px;
   border-radius: 999px;
   letter-spacing: 0.02em;
+}
+
+/* ---------- View switcher (page dots + side arrows) ---------- */
+.inspDiagramPager {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 4px 8px;
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.inspDiagramDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  background: #cbd5e1;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s;
+}
+.inspDiagramDot:hover {
+  background: #94a3b8;
+}
+.inspDiagramDotActive {
+  background: #475569;
+}
+.inspDiagramDotActive:hover {
+  background: #475569;
+}
+
+.inspDiagramArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: white;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  z-index: 2;
+}
+.inspDiagramArrow:hover {
+  background: #f8f9fa;
+  color: var(--color-text-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.inspDiagramArrowPrev { left: 4px; }
+.inspDiagramArrowNext { right: 4px; }
+
+.inspDiagramCaption {
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* ---------- Marker overlay ---------- */
+/* The marker stack is positioned in % coords relative to the .inspDiagram
+   container (which itself is fixed-aspect via the image inside). The
+   transform centers the chip on the (x,y) coordinate. */
+.inspMarkerStack {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  pointer-events: auto;
+  z-index: 1;
+}
+.inspMarker {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  border: 1.5px solid white;
+  text-transform: uppercase;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+.inspMarkerInline {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+  border: 1px solid white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* ---------- Legend below the diagram ---------- */
+.inspLegend {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: center;
+  border-top: 1px dashed #e5e7eb;
+}
+.inspLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-primary);
+}
+.inspLegendDot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.inspLegendLabel {
+  white-space: nowrap;
+}
+
+/* ---------- List of issues without diagram coords ---------- */
+.inspUnmappedList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.inspUnmappedItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #f8f9fa;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.inspUnmappedMarkers {
+  display: inline-flex;
+  align-items: center;
+}
+.inspUnmappedTitle {
+  color: var(--color-text-primary);
 }
 
 .inspFactList {

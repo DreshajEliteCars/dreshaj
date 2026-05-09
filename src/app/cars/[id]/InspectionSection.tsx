@@ -1,15 +1,64 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "../../../context/LanguageContext";
 import {
   InspectionReport,
   InspectionStatus,
+  PanelMarkerCode,
+  PanelObservation,
 } from "../../../lib/inspection";
+import { translate } from "../../../lib/translate";
 import DetailedInspection from "./DetailedInspection";
 import styles from "./page.module.css";
 
-const CAR_SILHOUETTE_URL = "https://www.encar.com/images/pop/check/img_inspection01.gif";
+/**
+ * Resolve the best display title for a panel in the active language.
+ *
+ * `panel.titleKo` is the original Korean from Encar — preferring it
+ * means the dictionary in `lib/translate.ts` controls the output, so
+ * (a) toggling between sq/en re-translates without a refetch, and
+ * (b) any new dictionary entries take effect immediately for already-
+ * cached cars without bumping the schema version. Falls back to the
+ * server-translated `title`, then to the panel code so we never show
+ * a blank label.
+ */
+function panelTitle(p: PanelObservation, lang: "sq" | "en"): string {
+  if (p.titleKo) return translate(p.titleKo, lang);
+  if (p.title) return p.title;
+  return p.code;
+}
+
+// Encar's two stock silhouettes — the body view (top-down) and the
+// frame view (under-chassis). We swap between them with the page-dot
+// switcher just like Encar does.
+const SILHOUETTE_BODY =
+  "https://www.encar.com/images/pop/check/img_inspection01.gif";
+const SILHOUETTE_FRAME =
+  "https://www.encar.com/images/pop/check/img_inspection02.gif";
+
+type DiagramView = "body" | "frame";
+
+const MARKER_COLORS: Record<PanelMarkerCode, string> = {
+  X: "#e53935", // exchange — red
+  W: "#1e88e5", // sheet metal/welding — blue
+  C: "#fb8c00", // corrosion — orange
+  A: "#fdd835", // scratches — yellow
+  U: "#43a047", // uneven surface — green
+  T: "#5e35b1", // impairment — purple
+};
+
+// Order of legend entries matches Encar's footer.
+const LEGEND_ORDER: PanelMarkerCode[] = ["X", "W", "C", "A", "U", "T"];
+
+const MARKER_LABEL_KEY: Record<PanelMarkerCode, string> = {
+  X: "insp_marker_X",
+  W: "insp_marker_W",
+  C: "insp_marker_C",
+  A: "insp_marker_A",
+  U: "insp_marker_U",
+  T: "insp_marker_T",
+};
 
 const STATUS_TO_KEY: Record<InspectionStatus, string> = {
   good: "insp_status_good",
@@ -169,21 +218,7 @@ function ReportBody({
     <>
       {/* Silhouette diagram + summary facts */}
       <div className={styles.inspTopGrid}>
-        <div className={styles.inspDiagram}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={CAR_SILHOUETTE_URL}
-            alt="Inspection diagram"
-            loading="lazy"
-          />
-          {report.panels.length > 0 && (
-            <div className={styles.inspDiagramOverlay}>
-              <span className={styles.inspDiagramBadge}>
-                {report.panels.length} {report.panels.length === 1 ? "issue" : "issues"}
-              </span>
-            </div>
-          )}
-        </div>
+        <DiagramPanel panels={report.panels} t={t} />
 
         <dl className={styles.inspFactList}>
           {facts.map(({ label, value }) => (
@@ -231,5 +266,223 @@ function ReportBody({
         />
       )}
     </>
+  );
+}
+
+/**
+ * Diagram with switcher between body / frame views.
+ *
+ * Renders the silhouette image and overlays one circular marker per
+ * `PanelObservation.position` (codes for which we have coordinates).
+ * Codes without coordinates still appear in the issue list below the
+ * diagram so the user never loses information.
+ */
+function DiagramPanel({
+  panels,
+  t,
+}: {
+  panels: PanelObservation[];
+  t: (key: string) => string;
+}) {
+  const { language } = useLanguage();
+  // Group by view so we know which page dots are useful and so we can
+  // build the unmapped-list per view.
+  //
+  // We also coerce stale-cache panels (cached under v3 before `markers`
+  // existed) into the new shape so the UI never has to special-case
+  // missing fields. The API route serves stale data on Encar errors.
+  const { bodyPanels, framePanels } = useMemo(() => {
+    const body: PanelObservation[] = [];
+    const frame: PanelObservation[] = [];
+    for (const raw of panels) {
+      const p: PanelObservation = {
+        ...raw,
+        markers: Array.isArray(raw.markers) ? raw.markers : [],
+        view: raw.view === "frame" ? "frame" : "body",
+        position: raw.position ?? null,
+      };
+      if (p.view === "frame") frame.push(p);
+      else body.push(p);
+    }
+    return { bodyPanels: body, framePanels: frame };
+  }, [panels]);
+
+  // Default to whichever view has issues (so the user lands on
+  // something useful). Body view is the fallback when there are none.
+  const initialView: DiagramView =
+    bodyPanels.length === 0 && framePanels.length > 0 ? "frame" : "body";
+  const [view, setView] = useState<DiagramView>(initialView);
+
+  // Pick the right silhouette + panel slice for the active view.
+  const activePanels = view === "body" ? bodyPanels : framePanels;
+  const silhouette = view === "body" ? SILHOUETTE_BODY : SILHOUETTE_FRAME;
+
+  // Codes we don't have coordinates for end up in this list — they
+  // still show up so the user sees every issue, just not on the diagram.
+  const unmapped = activePanels.filter((p) => !p.position);
+
+  // Which marker letters appear in the legend depends on what's
+  // actually on this view; we keep them in the canonical X/W/C/A/U/T
+  // order so the row matches Encar's footer.
+  const legendCodes = LEGEND_ORDER.filter((code) =>
+    activePanels.some((p) => p.markers.includes(code))
+  );
+
+  return (
+    <div className={styles.inspDiagramWrap}>
+      <div className={styles.inspDiagram}>
+        {/* The image-bound frame: markers and page-dot pager live
+            inside it so their coordinates always map to the silhouette
+            regardless of container padding. */}
+        <div className={styles.inspDiagramFrame}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={silhouette} alt="Inspection diagram" loading="lazy" />
+
+          {/* Markers — one per panel that has a known position. */}
+          {activePanels.map((panel) =>
+            panel.position ? (
+              <PanelMarker
+                key={`${panel.code}-${panel.markers.join("")}`}
+                panel={panel}
+                language={language}
+                t={t}
+              />
+            ) : null
+          )}
+
+          {/* Page dots — only show when there's content in both views. */}
+          {bodyPanels.length > 0 && framePanels.length > 0 ? (
+            <div className={styles.inspDiagramPager}>
+              <button
+                type="button"
+                aria-label={t("insp_view_body")}
+                className={`${styles.inspDiagramDot} ${
+                  view === "body" ? styles.inspDiagramDotActive : ""
+                }`}
+                onClick={() => setView("body")}
+              />
+              <button
+                type="button"
+                aria-label={t("insp_view_frame")}
+                className={`${styles.inspDiagramDot} ${
+                  view === "frame" ? styles.inspDiagramDotActive : ""
+                }`}
+                onClick={() => setView("frame")}
+              />
+            </div>
+          ) : null}
+        </div>
+
+        {/* Arrow toggle — outside the frame so it sits over the
+            container padding without obscuring the silhouette. */}
+        <button
+          type="button"
+          className={`${styles.inspDiagramArrow} ${styles.inspDiagramArrowPrev}`}
+          aria-label={t(view === "body" ? "insp_view_frame" : "insp_view_body")}
+          onClick={() => setView(view === "body" ? "frame" : "body")}
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          className={`${styles.inspDiagramArrow} ${styles.inspDiagramArrowNext}`}
+          aria-label={t(view === "body" ? "insp_view_frame" : "insp_view_body")}
+          onClick={() => setView(view === "body" ? "frame" : "body")}
+        >
+          ›
+        </button>
+      </div>
+
+      {/* Active-view label — small caption underneath. */}
+      <div className={styles.inspDiagramCaption}>
+        {t(view === "body" ? "insp_view_body" : "insp_view_frame")}
+      </div>
+
+      {/* Legend — only the marker codes actually present on this view. */}
+      {legendCodes.length > 0 && (
+        <ul className={styles.inspLegend}>
+          {legendCodes.map((code) => (
+            <li key={code} className={styles.inspLegendItem}>
+              <span
+                className={styles.inspLegendDot}
+                style={{ background: MARKER_COLORS[code] }}
+                aria-hidden="true"
+              >
+                {code}
+              </span>
+              <span className={styles.inspLegendLabel}>
+                {t(MARKER_LABEL_KEY[code])}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Unmapped issues — codes we don't have coordinates for. */}
+      {unmapped.length > 0 && (
+        <ul className={styles.inspUnmappedList}>
+          {unmapped.map((p) => (
+            <li key={p.code} className={styles.inspUnmappedItem}>
+              <span className={styles.inspUnmappedMarkers}>
+                {p.markers.map((m) => (
+                  <span
+                    key={m}
+                    className={styles.inspMarkerInline}
+                    style={{ background: MARKER_COLORS[m] }}
+                    title={t(MARKER_LABEL_KEY[m])}
+                  >
+                    {m}
+                  </span>
+                ))}
+              </span>
+              <span className={styles.inspUnmappedTitle}>
+                {panelTitle(p, language)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One panel marker positioned over the silhouette. Renders one
+ * coloured letter chip per status code on this panel — Encar shows
+ * them stacked when a panel has multiple flags (e.g. exchange + weld).
+ */
+function PanelMarker({
+  panel,
+  language,
+  t,
+}: {
+  panel: PanelObservation;
+  language: "sq" | "en";
+  t: (key: string) => string;
+}) {
+  if (!panel.position) return null;
+  const tooltip = [
+    panelTitle(panel, language),
+    panel.markers.map((m) => t(MARKER_LABEL_KEY[m])).join(", "),
+  ]
+    .filter(Boolean)
+    .join(" — ");
+
+  return (
+    <span
+      className={styles.inspMarkerStack}
+      style={{ left: `${panel.position.x}%`, top: `${panel.position.y}%` }}
+      title={tooltip}
+    >
+      {panel.markers.map((m) => (
+        <span
+          key={m}
+          className={styles.inspMarker}
+          style={{ background: MARKER_COLORS[m] }}
+        >
+          {m}
+        </span>
+      ))}
+    </span>
   );
 }

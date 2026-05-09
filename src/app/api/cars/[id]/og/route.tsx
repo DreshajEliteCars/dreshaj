@@ -9,7 +9,7 @@ import { join } from "path";
  *
  *   GET /api/cars/{id}/og?photo=2
  *
- * Returns a 1080×1350 (4:5 portrait, the format Instagram crops least)
+ * Returns a 1080×1920 (9:16 portrait, perfect for Instagram Stories)
  * PNG with:
  *   - the selected gallery photo on top
  *   - the make/model + trim + price in the bottom panel
@@ -327,15 +327,12 @@ export async function GET(
           fontFamily: "Inter, system-ui, -apple-system, sans-serif",
         }}
       >
-        {/* ---- Photo (top ~55% of canvas) ----
-            Height tuned so the info panel below has enough room for the
-            title, price, 2×2 specs, AND the larger footer logo without
-            overflow clipping the bottom branding. */}
+        {/* ---- Photo (top section) ---- */}
         <div
           style={{
             display: "flex",
             width: "100%",
-            height: 720,
+            height: 1080,
             background: "#0f172a",
             position: "relative",
             overflow: "hidden",
@@ -346,7 +343,7 @@ export async function GET(
             <img
               src={photoDataUrl}
               width={1080}
-              height={720}
+              height={1080}
               style={{
                 width: "100%",
                 height: "100%",
@@ -462,6 +459,27 @@ export async function GET(
               </svg>
               <span style={{ display: "flex" }}>Deri në Durrës</span>
             </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 16px",
+                backgroundColor: "#fef2f2",
+                color: "#dc2626",
+                borderRadius: 999,
+                fontSize: 22,
+                fontWeight: 600,
+                marginTop: 6,
+                marginLeft: "auto",
+              }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              <span style={{ display: "flex" }}>Me Garancion</span>
+            </div>
           </div>
 
           {/* Specs 2×2 (flex rows — Satori doesn't support CSS Grid) */}
@@ -521,7 +539,7 @@ export async function GET(
     ): Promise<ArrayBuffer> => {
       const r = new ImageResponse(renderCard(includePhoto), {
         width: 1080,
-        height: 1350,
+        height: 1920,
       });
       return r.arrayBuffer();
     };
