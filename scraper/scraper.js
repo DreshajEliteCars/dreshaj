@@ -72,24 +72,9 @@ const PRICE_MARKUP_EUR = parsePositiveInt(process.env.SCRAPER_PRICE_MARKUP_EUR) 
 const MAX_LISTINGS_PER_MAKE =
   parsePositiveInt(process.env.SCRAPER_MAX_LISTINGS_PER_MAKE) || 500;
 
-// Tiered markup applied on top of the base markup based on the converted
-// EUR price (pre-markup). Mirrors a typical importer fee structure where
-// higher-value cars carry a slightly higher handling fee. Tiers are
-// inclusive of the lower bound, exclusive of the upper bound.
-//   < €10,000           -> PRICE_MARKUP_EUR (default 400)
-//   €10,000 – €15,000   -> €500
-//   €15,000 – €20,000   -> €600
-//   €20,000+            -> €700
-const PRICE_MARKUP_TIERS = [
-  { min: 20000, markup: 700 },
-  { min: 15000, markup: 600 },
-  { min: 10000, markup: 500 },
-];
-
+// A flat markup applied on top of the converted EUR price (pre-markup).
+// Configurable via SCRAPER_PRICE_MARKUP_EUR, defaulting to 400.
 function getMarkupForBaseEur(baseEur) {
-  for (const tier of PRICE_MARKUP_TIERS) {
-    if (baseEur >= tier.min) return tier.markup;
-  }
   return PRICE_MARKUP_EUR;
 }
 
