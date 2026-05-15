@@ -35,8 +35,9 @@ const FUEL_TYPES = ["Diesel", "Petrol", "Elektrik", "Hibrid"] as const;
 const TRANSMISSION_TYPES = ["Manual", "Automatik"] as const;
 
 const CURRENT_YEAR = new Date().getFullYear();
+const MIN_YEAR = 2015;
 const REGISTRATION_YEARS: number[] = Array.from(
-  { length: 30 },
+  { length: CURRENT_YEAR - MIN_YEAR + 1 },
   (_, i) => CURRENT_YEAR - i
 );
 
