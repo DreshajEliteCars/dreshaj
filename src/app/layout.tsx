@@ -68,6 +68,9 @@ export const metadata: Metadata = {
   icons: {
     icon: "/images/favicon.jpg",
   },
+  verification: {
+    google: "M3HyUrYmG0AdtH_X7BVl3MdATWZlO5tzYmLA8Tx_GUE",
+  },
 };
 
 // Organization + WebSite JSON-LD for rich results in Google.
