@@ -28,8 +28,18 @@ export async function GET(req: Request): Promise<Response> {
   // --- Filters ---
   const searchQuery = searchParams.get("q");
   if (searchQuery) {
-    const term = `%${searchQuery}%`;
-    q = q.or(`make.ilike.${term},model.ilike.${term},trim.ilike.${term}`);
+    const tokens = searchQuery.split(/\s+/).filter(Boolean);
+    for (const token of tokens) {
+      const term = `%${token}%`;
+      let orQuery = `make.ilike.${term},model.ilike.${term},trim.ilike.${term},body_type.ilike.${term},fuel_type.ilike.${term},transmission.ilike.${term}`;
+      
+      const possibleYear = parseInt(token, 10);
+      if (!isNaN(possibleYear) && possibleYear > 1900 && possibleYear <= new Date().getFullYear() + 1) {
+        orQuery += `,registration_year.eq.${possibleYear}`;
+      }
+      
+      q = q.or(orQuery);
+    }
   }
 
   const make = searchParams.get("make");
