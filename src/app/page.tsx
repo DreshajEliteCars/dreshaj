@@ -9,7 +9,6 @@ import styles from "./page.module.css";
 import Link from "next/link";
 import { useLanguage } from "../context/LanguageContext";
 import { useState, useEffect } from "react";
-import { getSupabase } from "../lib/supabase";
 import { useShipPrice } from "../lib/useShipPrice";
 import { applyShipPrice } from "../lib/appSettings";
 
@@ -20,38 +19,18 @@ export default function Home() {
   const shipPrice = useShipPrice();
 
   useEffect(() => {
-    async function fetchLocalCars() {
-      const supabase = getSupabase();
-      if (!supabase) return;
-
-      const { data } = await supabase
-        .from('local_cars')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(8);
-
-      if (data) {
-        setLocalCars(data);
+    async function fetchFeatured() {
+      try {
+        const res = await fetch("/api/featured");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.local) setLocalCars(data.local);
+        if (data.famous) setFamousCars(data.famous);
+      } catch {
+        // Silently fail — homepage still renders without featured cars.
       }
     }
-    async function fetchFamousCars() {
-      const supabase = getSupabase();
-      if (!supabase) return;
-
-      // Fetch a mix of famous brands, sorted by newest or most photos
-      const { data } = await supabase
-        .from('cars')
-        .select('*')
-        .in('make', ['BMW', 'Volkswagen', 'Mercedes-Benz', 'Audi'])
-        .order('photo_count', { ascending: false })
-        .limit(4);
-
-      if (data) {
-        setFamousCars(data);
-      }
-    }
-    fetchLocalCars();
-    fetchFamousCars();
+    fetchFeatured();
   }, []);
 
   const localCarItems = localCars.map(c => {

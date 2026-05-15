@@ -1448,7 +1448,12 @@ async function _walkBucket(target, yearRange, options, shared) {
 
 async function fetchManufacturerCars(target, options = {}) {
   const exchangeRate = options.exchangeRate || FALLBACK_KRW_TO_EUR_RATE;
-  const maxListingsPerMake = parsePositiveInt(options.maxListingsPerMake) || null;
+  let maxListingsPerMake = parsePositiveInt(options.maxListingsPerMake) || null;
+
+  // Bypass the global limit specifically for Volkswagen to fetch all available listings
+  if (target.canonicalName === 'Volkswagen') {
+    maxListingsPerMake = null;
+  }
 
   const shared = {
     seenSourceIds: new Set(),

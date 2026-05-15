@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { createClient } from "@supabase/supabase-js";
+import { getServerSupabase } from "../../../../../lib/supabaseServer";
 import { Car } from "../../../../../lib/cars";
 import { readFile } from "fs/promises";
 import { join } from "path";
@@ -128,12 +128,7 @@ type RouteParams = Promise<{ id: string }>;
 const numberFormatter = new Intl.NumberFormat("en-US");
 
 function getServerClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) return null;
-  return createClient(url, anon, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  return getServerSupabase();
 }
 
 function resolveSourceId(idParam: string): {
@@ -332,8 +327,8 @@ export async function GET(
           style={{
             display: "flex",
             width: "100%",
-            height: 1080,
-            background: "#0f172a",
+            height: 810,
+            background: "#ffffff",
             position: "relative",
             overflow: "hidden",
           }}
@@ -343,11 +338,12 @@ export async function GET(
             <img
               src={photoDataUrl}
               width={1080}
-              height={1080}
+              height={810}
               style={{
                 width: "100%",
                 height: "100%",
                 objectFit: "cover",
+                objectPosition: "center",
               }}
             />
           ) : (
@@ -386,25 +382,25 @@ export async function GET(
           />
         </div>
 
-        {/* ---- Info panel (bottom 36%) ---- */}
+        {/* ---- Info panel (bottom) ---- */}
         <div
           style={{
             flex: 1,
             display: "flex",
             flexDirection: "column",
-            padding: "32px 48px 48px",
-            gap: 16,
+            padding: "48px 64px 64px",
+            gap: 20,
           }}
         >
           {/* Title row */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div
               style={{
-                fontSize: 56,
+                fontSize: 72,
                 fontWeight: 800,
                 color: TEXT,
                 lineHeight: 1.1,
-                letterSpacing: -1,
+                letterSpacing: -2,
                 display: "flex",
               }}
             >
@@ -413,7 +409,7 @@ export async function GET(
             {trim && (
               <div
                 style={{
-                  fontSize: 26,
+                  fontSize: 32,
                   color: MUTED,
                   fontWeight: 500,
                   display: "flex",
@@ -425,15 +421,16 @@ export async function GET(
           </div>
 
           {/* Price & Badge */}
-          <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 12 }}>
             <div
               style={{
-                fontSize: 64,
+                fontSize: 80,
                 fontWeight: 800,
                 color: ACCENT,
                 lineHeight: 1,
-                letterSpacing: -1,
+                letterSpacing: -2,
                 display: "flex",
+                whiteSpace: "nowrap",
               }}
             >
               {price}
@@ -443,17 +440,17 @@ export async function GET(
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
-                padding: "8px 16px",
+                gap: 10,
+                padding: "10px 20px",
                 backgroundColor: "#f1f5f9",
                 color: "#475569",
                 borderRadius: 999,
-                fontSize: 22,
+                fontSize: 26,
                 fontWeight: 600,
                 marginTop: 6,
               }}
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                 <circle cx="12" cy="10" r="3" />
               </svg>
@@ -464,18 +461,18 @@ export async function GET(
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
-                padding: "8px 16px",
+                gap: 10,
+                padding: "10px 20px",
                 backgroundColor: "#fef2f2",
                 color: "#dc2626",
                 borderRadius: 999,
-                fontSize: 22,
+                fontSize: 26,
                 fontWeight: 600,
                 marginTop: 6,
                 marginLeft: "auto",
               }}
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
               </svg>
               <span style={{ display: "flex" }}>Me Garancion</span>
@@ -488,14 +485,14 @@ export async function GET(
               marginTop: 16,
               display: "flex",
               flexDirection: "column",
-              gap: 12,
+              gap: 16,
             }}
           >
-            <div style={{ display: "flex", flexDirection: "row", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 16 }}>
               <Spec label="Kilometrazhi" value={mileage} stroke={STROKE} muted={MUTED} text={TEXT} />
               <Spec label="Transmisioni" value={transmission} stroke={STROKE} muted={MUTED} text={TEXT} />
             </div>
-            <div style={{ display: "flex", flexDirection: "row", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 16 }}>
               <Spec label="Regjistrimi i parë" value={registration} stroke={STROKE} muted={MUTED} text={TEXT} />
               <Spec label="Karburanti" value={fuel} stroke={STROKE} muted={MUTED} text={TEXT} />
             </div>
@@ -508,9 +505,9 @@ export async function GET(
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              paddingTop: 16,
-              marginBottom: 8,
-              borderTop: `1px solid ${STROKE}`,
+              paddingTop: 24,
+              marginBottom: 12,
+              borderTop: `2px solid ${STROKE}`,
             }}
           >
             {logoDataUrl && (
@@ -518,8 +515,8 @@ export async function GET(
               <img
                 src={logoDataUrl}
                 alt="Dreshaj Elite Cars"
-                width={360}
-                height={120}
+                width={420}
+                height={140}
                 style={{ display: "flex", objectFit: "contain" }}
               />
             )}
@@ -592,16 +589,16 @@ function Spec({
         flex: 1,
         display: "flex",
         flexDirection: "column",
-        gap: 2,
-        padding: "12px 16px",
-        border: `1px solid ${stroke}`,
-        borderRadius: 12,
+        gap: 6,
+        padding: "20px 28px",
+        border: `2px solid ${stroke}`,
+        borderRadius: 20,
       }}
     >
-      <div style={{ fontSize: 18, color: muted, fontWeight: 500, display: "flex" }}>
+      <div style={{ fontSize: 24, color: muted, fontWeight: 500, display: "flex" }}>
         {label}
       </div>
-      <div style={{ fontSize: 24, color: text, fontWeight: 700, display: "flex" }}>
+      <div style={{ fontSize: 36, color: text, fontWeight: 700, display: "flex" }}>
         {value}
       </div>
     </div>

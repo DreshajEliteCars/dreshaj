@@ -2,11 +2,10 @@
  * Cars data layer.
  *
  * Single source of truth for the car listing types, the URL filter
- * encoding, and the live Supabase query. The page imports from here
- * instead of holding its own data.
+ * encoding, and the data-fetching functions. All data now flows
+ * through server-side API routes (/api/cars, /api/cars/[id]/detail)
+ * so the Supabase URL is never exposed to the browser.
  */
-
-import { getSupabase } from "./supabase";
 
 export type FuelType = "Diesel" | "Petrol" | "Elektrik" | "Hibrid";
 export type Transmission = "Manual" | "Automatik";
@@ -193,41 +192,25 @@ export function hasActiveFilters(f: CarFilters): boolean {
 }
 
 /**
- * Search for cars matching the provided filters.
- *
- * Runs entirely in the browser against Supabase. No Next.js server hop, no
- * API route — just a single, RLS-protected Postgres query. If env vars
- * aren't configured (e.g. a fresh checkout, a preview deploy without
- * secrets) we return an empty result set instead of crashing the page.
- */
-/**
- * Fetch a single car by URL identifier. Accepts either:
- *   - the bare `source_id` (e.g. "41897939")  — recommended in URLs
- *   - the full composite `id`  (e.g. "encar:41897939")
- *
- * Returns null when env vars aren't configured (preview deploys, fresh
- * checkouts) or when the car doesn't exist.
+ * Fetch a single car by URL identifier via the server-side API proxy.
+ * Accepts either the bare `source_id` (e.g. "41897939") or the full
+ * composite `id` (e.g. "encar:41897939").
  */
 export async function getCar(idOrSourceId: string): Promise<Car | null> {
-  const supabase = getSupabase();
-  if (!supabase) return null;
-
   const trimmed = idOrSourceId.trim();
   if (!trimmed) return null;
 
-  const isFullId = trimmed.includes(":");
-  const column = isFullId ? "id" : "source_id";
+  const res = await fetch(`/api/cars/${encodeURIComponent(trimmed)}/detail`);
+  if (!res.ok) return null;
 
-  const { data, error } = await supabase
-    .from("cars")
-    .select("*")
-    .eq(column, trimmed)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-  return (data as Car | null) ?? null;
+  const body = await res.json();
+  return (body.car as Car | null) ?? null;
 }
 
+/**
+ * Search for cars matching the provided filters via the server-side
+ * API proxy. The browser never touches Supabase directly.
+ */
 export async function searchCars(
   filters: CarFilters,
   options?: { signal?: AbortSignal }
@@ -236,81 +219,35 @@ export async function searchCars(
     throw new DOMException("Aborted", "AbortError");
   }
 
-  const supabase = getSupabase();
-  if (!supabase) {
-    return { cars: [], total: 0 };
-  }
+  // Build query params matching what the API route expects.
+  const params = new URLSearchParams();
+  if (filters.searchQuery) params.set("q", filters.searchQuery);
+  if (filters.make) params.set("make", filters.make);
+  if (filters.model) params.set("model", filters.model);
+  if (filters.bodyTypes.length) params.set("bodyTypes", filters.bodyTypes.join(","));
+  if (filters.fuelType) params.set("fuel", filters.fuelType);
+  if (filters.transmission) params.set("transmission", filters.transmission);
+  if (filters.priceFrom != null) params.set("priceFrom", String(filters.priceFrom));
+  if (filters.priceTo != null) params.set("priceTo", String(filters.priceTo));
+  if (filters.mileageFrom != null) params.set("mileageFrom", String(filters.mileageFrom));
+  if (filters.mileageTo != null) params.set("mileageTo", String(filters.mileageTo));
+  if (filters.registrationFrom != null) params.set("regFrom", String(filters.registrationFrom));
+  if (filters.registrationTo != null) params.set("regTo", String(filters.registrationTo));
+  if (filters.sort) params.set("sort", filters.sort);
+  params.set("page", String(filters.page));
+  params.set("pageSize", String(filters.pageSize));
 
-  let q = supabase.from("cars").select("*", { count: "exact" });
-
-  if (filters.searchQuery) {
-    // Basic text search across make, model, and trim.
-    const term = `%${filters.searchQuery}%`;
-    q = q.or(`make.ilike.${term},model.ilike.${term},trim.ilike.${term}`);
-  }
-
-  if (filters.make) q = q.eq("make", filters.make);
-  if (filters.model) q = q.eq("model", filters.model);
-  if (filters.bodyTypes.length) q = q.in("body_type", filters.bodyTypes);
-  if (filters.fuelType) q = q.eq("fuel_type", filters.fuelType);
-  if (filters.transmission) q = q.eq("transmission", filters.transmission);
-  if (filters.priceFrom != null) q = q.gte("price_eur", filters.priceFrom);
-  if (filters.priceTo != null) q = q.lte("price_eur", filters.priceTo);
-  if (filters.mileageFrom != null) q = q.gte("mileage_km", filters.mileageFrom);
-  if (filters.mileageTo != null) q = q.lte("mileage_km", filters.mileageTo);
-  if (filters.registrationFrom != null) {
-    q = q.gte("registration_year", filters.registrationFrom);
-  }
-  if (filters.registrationTo != null) {
-    q = q.lte("registration_year", filters.registrationTo);
-  }
-
-  switch (filters.sort) {
-    case "price_asc":
-      q = q.order("price_eur", { ascending: true, nullsFirst: false });
-      break;
-    case "price_desc":
-      q = q.order("price_eur", { ascending: false, nullsFirst: false });
-      break;
-    case "newest":
-      q = q
-        .order("registration_year", { ascending: false })
-        .order("registration_month", { ascending: false, nullsFirst: false });
-      break;
-    case "mileage_asc":
-      q = q.order("mileage_km", { ascending: true, nullsFirst: false });
-      break;
-    default:
-      // "best results" = highest quality listings (most photos) first, then newest
-      q = q.order("photo_count", { ascending: false }).order("created_at", { ascending: false });
-      break;
-  }
-
-  const from = Math.max(0, (filters.page - 1) * filters.pageSize);
-  q = q.range(from, from + filters.pageSize - 1);
-
-  // If the caller passed an AbortSignal, race the query against it so we
-  // don't keep an old-filter response alive after the user has changed
-  // filters.
-  const signal = options?.signal;
-  const queryPromise = q.then(({ data, count, error }) => {
-    if (error) throw new Error(error.message);
-    return {
-      cars: (data ?? []) as Car[],
-      total: count ?? 0,
-    };
+  const res = await fetch(`/api/cars?${params.toString()}`, {
+    signal: options?.signal,
   });
 
-  if (!signal) return queryPromise;
-  return Promise.race([
-    queryPromise,
-    new Promise<CarSearchResult>((_, reject) => {
-      if (signal.aborted) return reject(new DOMException("Aborted", "AbortError"));
-      signal.addEventListener(
-        "abort",
-        () => reject(new DOMException("Aborted", "AbortError")),
-        { once: true }
-      );
-    }),
-  ]);
+  if (!res.ok) {
+    throw new Error(`Search failed: HTTP ${res.status}`);
+  }
+
+  const body = await res.json();
+  return {
+    cars: (body.cars ?? []) as Car[],
+    total: body.total ?? 0,
+  };
 }

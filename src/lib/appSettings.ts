@@ -16,29 +16,24 @@ export type AppSettings = {
 };
 
 /**
- * Read the singleton settings row. Falls back to defaults when Supabase
- * is unconfigured (e.g. preview deploy without secrets) or the table
- * hasn't been migrated yet, so the public site never crashes.
+ * Read the singleton settings row via the server-side API proxy.
+ * Falls back to defaults when the API is unavailable, so the public
+ * site never crashes.
  */
 export async function getAppSettings(): Promise<AppSettings> {
-  const supabase = getSupabase();
-  if (!supabase) return { ship_price_eur: DEFAULT_SHIP_PRICE_EUR };
-
-  const { data, error } = await supabase
-    .from("app_settings")
-    .select("ship_price_eur")
-    .eq("id", 1)
-    .maybeSingle();
-
-  if (error || !data) {
+  try {
+    const res = await fetch("/api/settings");
+    if (!res.ok) return { ship_price_eur: DEFAULT_SHIP_PRICE_EUR };
+    const data = await res.json();
+    return {
+      ship_price_eur:
+        typeof data.ship_price_eur === "number"
+          ? data.ship_price_eur
+          : DEFAULT_SHIP_PRICE_EUR,
+    };
+  } catch {
     return { ship_price_eur: DEFAULT_SHIP_PRICE_EUR };
   }
-  return {
-    ship_price_eur:
-      typeof data.ship_price_eur === "number"
-        ? data.ship_price_eur
-        : DEFAULT_SHIP_PRICE_EUR,
-  };
 }
 
 /**
