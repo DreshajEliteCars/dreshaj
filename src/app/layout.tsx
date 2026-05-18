@@ -49,7 +49,7 @@ export const metadata: Metadata = {
       "Import dhe shitje e veturave cilësore nga Koreja Jugore. Inspektim i plotë, garancion, dërgim deri në Durrës.",
     images: [
       {
-        url: "/images/logo.png",
+        url: "/images/logo-dark.png",
         width: 512,
         height: 512,
         alt: "Dreshaj Elite Cars Logo",
@@ -84,7 +84,9 @@ const jsonLd = {
       url: SITE_URL,
       logo: {
         "@type": "ImageObject",
-        url: `${SITE_URL}/images/logo.png`,
+        url: `${SITE_URL}/images/logo-dark.png`,
+        width: 512,
+        height: 512,
       },
       contactPoint: {
         "@type": "ContactPoint",
