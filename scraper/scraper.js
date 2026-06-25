@@ -1713,16 +1713,20 @@ async function fetchManufacturerCars(target, options = {}) {
     }
   }
 
-  // Model-group top-up: after the broad sweep, run targeted queries for
-  // priority models (no cap) using the same shared accumulator so that
-  // seenSourceIds deduplicates any overlap automatically.
+  // Model-group top-up: after the broad sweep, fetch up to 50 additional
+  // listings per priority model. seenSourceIds deduplicates overlap so the
+  // cap counts only net-new listings added by this pass.
+  const MODEL_GROUP_TOPUP_CAP = 50;
   if (target.modelGroups?.length) {
-    console.log(`[${target.canonicalName}] Running model-group top-up for ${target.modelGroups.length} priority models…`);
+    console.log(`[${target.canonicalName}] Running model-group top-up (${MODEL_GROUP_TOPUP_CAP} extra per model)…`);
     for (const mg of target.modelGroups) {
       const subTarget = { ...target, queryModelGroup: mg.queryModelGroup };
       const yearFrom = mg.yearFrom ? mg.yearFrom * 100 + 1 : MIN_YEAR_MM;
       const yearTo   = mg.yearTo   ? mg.yearTo   * 100 + 12 : MAX_YEAR_MM;
       const mgYearRange = { from: yearFrom, to: yearTo };
+
+      const sizeBeforeTopup = shared.seenSourceIds.size;
+      const mgRemaining = () => MODEL_GROUP_TOPUP_CAP - (shared.seenSourceIds.size - sizeBeforeTopup);
 
       let mgCount = 0;
       try {
@@ -1732,10 +1736,8 @@ async function fetchManufacturerCars(target, options = {}) {
       }
 
       console.log(
-        `[${target.canonicalName}] [${mg.queryModelGroup}] top-up: ${mgCount.toLocaleString()} listings (${yearFrom}..${yearTo}), no cap.`
+        `[${target.canonicalName}] [${mg.queryModelGroup}] top-up: ${mgCount.toLocaleString()} available (${yearFrom}..${yearTo}), cap +${MODEL_GROUP_TOPUP_CAP}.`
       );
-
-      const mgRemaining = () => Infinity;
 
       let mgBuckets;
       if (mgCount === 0 || mgCount <= SLICING_THRESHOLD) {
@@ -1750,6 +1752,7 @@ async function fetchManufacturerCars(target, options = {}) {
       }
 
       for (const bucket of mgBuckets) {
+        if (mgRemaining() <= 0) break;
         await _walkBucket(
           subTarget,
           bucket,
@@ -1760,6 +1763,9 @@ async function fetchManufacturerCars(target, options = {}) {
           shared.warnings.push(`[${mg.queryModelGroup}] Bucket ${bucket.from}..${bucket.to} exceeded API cap; some listings not fetched.`);
         }
       }
+
+      const added = shared.seenSourceIds.size - sizeBeforeTopup;
+      console.log(`[${target.canonicalName}] [${mg.queryModelGroup}] top-up added ${added} new listings.`);
     }
   }
 
