@@ -1635,10 +1635,6 @@ async function fetchManufacturerCarsByModelGroups(target, options = {}) {
 }
 
 async function fetchManufacturerCars(target, options = {}) {
-  if (target.modelGroups?.length) {
-    return fetchManufacturerCarsByModelGroups(target, options);
-  }
-
   const exchangeRate = options.exchangeRate || FALLBACK_KRW_TO_EUR_RATE;
   let maxListingsPerMake = parsePositiveInt(options.maxListingsPerMake) || null;
 
@@ -1717,6 +1713,56 @@ async function fetchManufacturerCars(target, options = {}) {
     }
   }
 
+  // Model-group top-up: after the broad sweep, run targeted queries for
+  // priority models (no cap) using the same shared accumulator so that
+  // seenSourceIds deduplicates any overlap automatically.
+  if (target.modelGroups?.length) {
+    console.log(`[${target.canonicalName}] Running model-group top-up for ${target.modelGroups.length} priority models…`);
+    for (const mg of target.modelGroups) {
+      const subTarget = { ...target, queryModelGroup: mg.queryModelGroup };
+      const yearFrom = mg.yearFrom ? mg.yearFrom * 100 + 1 : MIN_YEAR_MM;
+      const yearTo   = mg.yearTo   ? mg.yearTo   * 100 + 12 : MAX_YEAR_MM;
+      const mgYearRange = { from: yearFrom, to: yearTo };
+
+      let mgCount = 0;
+      try {
+        mgCount = await fetchCount(subTarget, mgYearRange);
+      } catch (error) {
+        shared.warnings.push(`[${mg.queryModelGroup}] Top-up count failed: ${error.message}`);
+      }
+
+      console.log(
+        `[${target.canonicalName}] [${mg.queryModelGroup}] top-up: ${mgCount.toLocaleString()} listings (${yearFrom}..${yearTo}), no cap.`
+      );
+
+      const mgRemaining = () => Infinity;
+
+      let mgBuckets;
+      if (mgCount === 0 || mgCount <= SLICING_THRESHOLD) {
+        mgBuckets = [mgYearRange];
+      } else {
+        try {
+          mgBuckets = await enumerateYearBuckets(subTarget, mgYearRange);
+        } catch (error) {
+          shared.warnings.push(`[${mg.queryModelGroup}] Top-up bucket enumeration failed: ${error.message}`);
+          mgBuckets = [mgYearRange];
+        }
+      }
+
+      for (const bucket of mgBuckets) {
+        await _walkBucket(
+          subTarget,
+          bucket,
+          { ...options, exchangeRate, remaining: mgRemaining, skipFreshHours: options.skipFreshHours ?? SKIP_FRESH_HOURS },
+          shared
+        );
+        if (bucket?.overCap) {
+          shared.warnings.push(`[${mg.queryModelGroup}] Bucket ${bucket.from}..${bucket.to} exceeded API cap; some listings not fetched.`);
+        }
+      }
+    }
+  }
+
   let finalCount;
   if (maxListingsPerMake === null) {
     try {
@@ -1742,12 +1788,11 @@ async function fetchManufacturerCars(target, options = {}) {
   // Deletion is safe when:
   //   - no cap: we've seen >= the count Encar reported, so anything in DB
   //     and not in our fetch is genuinely gone.
-  //   - capped (e.g. 500 per make): we treat the fetched batch as the
-  //     authoritative inventory for that make. Anything outside the
-  //     batch is sold / bumped off the top-N and should be removed,
-  //     keeping the local DB to a rolling top-N per make.
+  //   - capped broad sweep + model-group top-up: we can't guarantee we
+  //     have full inventory, so preserve existing DB rows for this make.
   const deletionSafe =
     fetchSucceeded &&
+    !target.modelGroups?.length &&
     (maxListingsPerMake !== null ||
       shared.seenSourceIds.size >= (finalCount || 0));
 
