@@ -425,16 +425,70 @@ async function bootstrapSession({ force = false } = {}) {
   }
 }
 
+// Each entry may carry a `modelGroups` array to restrict scraping to
+// specific models and year windows. When present, `fetchManufacturerCars`
+// runs one Encar query per model group (Manufacturer + ModelGroup + Year)
+// instead of a single broad manufacturer query, giving precise control
+// without the rolling-top-N cap.
+//
+// `queryModelGroup` must match the Korean model-group string used by
+// Encar's search API (e.g. 'C클래스', '5시리즈', 'Q5', '티구안').
+// `yearFrom` / `yearTo` are calendar years (null = no bound).
 const TARGET_MAKES = [
-  { key: 'benz', canonicalName: 'Mercedes-Benz', queryManufacturer: '벤츠', aliases: ['benz', 'mercedes', 'mercedes benz', 'mercedes-benz'] },
-  { key: 'bmw', canonicalName: 'BMW', queryManufacturer: 'BMW', aliases: ['bmw'] },
+  {
+    key: 'benz',
+    canonicalName: 'Mercedes-Benz',
+    queryManufacturer: '벤츠',
+    aliases: ['benz', 'mercedes', 'mercedes benz', 'mercedes-benz'],
+    modelGroups: [
+      { queryModelGroup: 'C클래스', yearFrom: 2016, yearTo: 2019 },
+      { queryModelGroup: 'E클래스', yearFrom: 2016, yearTo: 2019 },
+      { queryModelGroup: 'GLC',     yearFrom: 2016, yearTo: 2019 },
+    ],
+  },
+  {
+    key: 'bmw',
+    canonicalName: 'BMW',
+    queryManufacturer: 'BMW',
+    aliases: ['bmw'],
+    modelGroups: [
+      { queryModelGroup: '5시리즈', yearFrom: 2016, yearTo: 2020 },
+      { queryModelGroup: '1시리즈', yearFrom: 2016, yearTo: 2018 },
+      { queryModelGroup: '4시리즈', yearFrom: 2016, yearTo: 2018 },
+      { queryModelGroup: '3시리즈', yearFrom: 2016, yearTo: 2023 },
+      { queryModelGroup: 'X3',      yearFrom: null, yearTo: 2018 },
+      { queryModelGroup: 'X4',      yearFrom: 2016, yearTo: 2018 },
+    ],
+  },
   { key: 'kia', canonicalName: 'Kia', queryManufacturer: '기아', aliases: ['kia'] },
-  { key: 'audi', canonicalName: 'Audi', queryManufacturer: '아우디', aliases: ['audi'] },
+  {
+    key: 'audi',
+    canonicalName: 'Audi',
+    queryManufacturer: '아우디',
+    aliases: ['audi'],
+    modelGroups: [
+      { queryModelGroup: 'A6', yearFrom: 2016, yearTo: null },
+      { queryModelGroup: 'A4', yearFrom: 2016, yearTo: 2019 },
+      { queryModelGroup: 'A7', yearFrom: 2016, yearTo: 2020 },
+      { queryModelGroup: 'Q3', yearFrom: 2016, yearTo: 2019 },
+      { queryModelGroup: 'Q5', yearFrom: 2016, yearTo: null },
+    ],
+  },
   { key: 'jeep', canonicalName: 'Jeep', queryManufacturer: '지프', aliases: ['jeep'] },
   { key: 'mazda', canonicalName: 'Mazda', queryManufacturer: '마쯔다', aliases: ['mazda'] },
   { key: 'nissan', canonicalName: 'Nissan', queryManufacturer: '닛산', aliases: ['nissan'] },
   { key: 'peugeot', canonicalName: 'Peugeot', queryManufacturer: '푸조', aliases: ['peugeot', 'pezho'] },
-  { key: 'renault', canonicalName: 'Renault', queryManufacturer: '르노코리아(삼성)', aliases: ['renault', 'renault samsung', 'renault-korea', 'samsung renault'] },
+  {
+    key: 'renault',
+    canonicalName: 'Renault',
+    queryManufacturer: '르노코리아(삼성)',
+    aliases: ['renault', 'renault samsung', 'renault-korea', 'samsung renault'],
+    modelGroups: [
+      { queryModelGroup: 'QM3',   yearFrom: 2016, yearTo: 2019 },
+      { queryModelGroup: 'QM6',   yearFrom: 2016, yearTo: 2019 },
+      { queryModelGroup: '클리오', yearFrom: 2016, yearTo: 2019 },
+    ],
+  },
   { key: 'volvo', canonicalName: 'Volvo', queryManufacturer: '볼보', aliases: ['volvo'] },
   { key: 'suzuki', canonicalName: 'Suzuki', queryManufacturer: '스즈키', aliases: ['suzuki'] },
   { key: 'tesla', canonicalName: 'Tesla', queryManufacturer: '테슬라', aliases: ['tesla'] },
@@ -450,7 +504,19 @@ const TARGET_MAKES = [
   { key: 'byd', canonicalName: 'BYD', queryManufacturer: 'BYD', aliases: ['byd'] },
   { key: 'aston-martin', canonicalName: 'Aston Martin', queryManufacturer: '애스턴마틴', aliases: ['aston martin', 'aston-martin'] },
   { key: 'ferrari', canonicalName: 'Ferrari', queryManufacturer: '페라리', aliases: ['ferrari', 'ferraria'] },
-  { key: 'volkswagen', canonicalName: 'Volkswagen', queryManufacturer: '폭스바겐', aliases: ['volkswagen', 'vw'] },
+  {
+    key: 'volkswagen',
+    canonicalName: 'Volkswagen',
+    queryManufacturer: '폭스바겐',
+    aliases: ['volkswagen', 'vw'],
+    modelGroups: [
+      { queryModelGroup: '티구안', yearFrom: 2016, yearTo: 2020 },
+      { queryModelGroup: '제타',   yearFrom: 2016, yearTo: null },
+      { queryModelGroup: '폴로',   yearFrom: 2016, yearTo: 2018 },
+      { queryModelGroup: 'CC',     yearFrom: 2016, yearTo: null },
+      { queryModelGroup: '아테온', yearFrom: 2018, yearTo: 2020 },
+    ],
+  },
 ];
 
 const TARGETS_BY_ALIAS = new Map();
@@ -701,7 +767,7 @@ function createSearchRange(offset, limit) {
  * @param {{from:number, to:number}|null} yearRange - inclusive yyyymm range
  *        (e.g. { from: 202001, to: 202412 }). Use null for "no slice".
  */
-function createManufacturerQuery(queryManufacturer, yearRange = null) {
+function createManufacturerQuery(queryManufacturer, yearRange = null, queryModelGroup = null) {
   // Always cap the year window at MIN_REGISTRATION_YEAR. When the caller
   // passes a narrower range (year-bucket slicing), use that range
   // directly — but clamp its lower bound to MIN_YEAR_MM defensively.
@@ -713,10 +779,15 @@ function createManufacturerQuery(queryManufacturer, yearRange = null) {
     'Hidden.N',
     'CarType.A',
     `Manufacturer.${queryManufacturer}`,
+  ];
+  if (queryModelGroup) {
+    parts.push(`ModelGroup.${queryModelGroup}`);
+  }
+  parts.push(
     'ServiceCopyCar.ORIGINAL',
     'SellType.일반',
     `Year.range(${range.from}..${range.to})`,
-  ];
+  );
   return `(And.${parts.join('._.')}.)`;
 }
 
@@ -726,11 +797,11 @@ async function fetchCount(target, yearRange = null) {
     {
       params: {
         count: 'true',
-        q: createManufacturerQuery(target.queryManufacturer, yearRange),
+        q: createManufacturerQuery(target.queryManufacturer, yearRange, target.queryModelGroup || null),
         sr: createSearchRange(0, 1),
       },
     },
-    `${target.canonicalName} count${yearRange ? ` (${yearRange.from}..${yearRange.to})` : ''}`
+    `${target.canonicalName}${target.queryModelGroup ? ` [${target.queryModelGroup}]` : ''} count${yearRange ? ` (${yearRange.from}..${yearRange.to})` : ''}`
   );
   return toInteger(response.data?.Count) || 0;
 }
@@ -743,9 +814,9 @@ async function fetchCount(target, yearRange = null) {
  *
  * Returns an array of { from, to, count } in yyyymm form.
  */
-async function enumerateYearBuckets(target) {
-  const totalFrom = OLDEST_YEAR_BUCKET * 100 + 1;       // e.g. 199501
-  const totalTo = NEWEST_YEAR_BUCKET * 100 + 12;        // e.g. 202712
+async function enumerateYearBuckets(target, initialRange = null) {
+  const totalFrom = initialRange?.from ?? (OLDEST_YEAR_BUCKET * 100 + 1);  // e.g. 199501
+  const totalTo   = initialRange?.to   ?? (NEWEST_YEAR_BUCKET * 100 + 12); // e.g. 202712
   const result = [];
 
   async function recurse(from, to) {
@@ -1288,7 +1359,7 @@ async function _walkBucket(target, yearRange, options, shared) {
   const exchangeRate = options.exchangeRate || FALLBACK_KRW_TO_EUR_RATE;
   const onRowsBatch = options.onRowsBatch;
   const remaining = options.remaining; // () => number | Infinity
-  const query = createManufacturerQuery(target.queryManufacturer, yearRange);
+  const query = createManufacturerQuery(target.queryManufacturer, yearRange, target.queryModelGroup || null);
   let offset = 0;
   let bucketAdded = 0;
   let bucketCount = null;
@@ -1431,14 +1502,145 @@ async function _walkBucket(target, yearRange, options, shared) {
   }
 }
 
+// Fetches listings for targets that declare a `modelGroups` array. Each entry
+// is a { queryModelGroup, yearFrom, yearTo } descriptor. Queries are issued
+// one model group at a time with no per-make listing cap, so the full
+// available inventory for those specific models is retrieved.
+//
+// `deletionSafe` is set to false because we only cover a subset of the make's
+// models — deleting DB rows not in the fetch would incorrectly remove models
+// not included in the modelGroups list.
+async function fetchManufacturerCarsByModelGroups(target, options = {}) {
+  const exchangeRate = options.exchangeRate || FALLBACK_KRW_TO_EUR_RATE;
+
+  const shared = {
+    seenSourceIds: new Set(),
+    rows: [],
+    warnings: [],
+    validationSamples: [],
+    duplicateCount: 0,
+    skippedListings: 0,
+    normalizedCount: 0,
+    priceBelowFloor: 0,
+    freshSkipped: 0,
+    pageFailures: 0,
+    maxListings: Infinity,
+  };
+
+  let totalInitialCount = 0;
+  let totalFinalCount = 0;
+
+  for (const mg of target.modelGroups) {
+    const subTarget = {
+      ...target,
+      queryModelGroup: mg.queryModelGroup,
+    };
+
+    const yearFrom = mg.yearFrom ? mg.yearFrom * 100 + 1 : MIN_YEAR_MM;
+    const yearTo   = mg.yearTo   ? mg.yearTo   * 100 + 12 : MAX_YEAR_MM;
+    const mgYearRange = { from: yearFrom, to: yearTo };
+
+    let initialCount = 0;
+    try {
+      initialCount = await fetchCount(subTarget, mgYearRange);
+      totalInitialCount += initialCount;
+    } catch (error) {
+      shared.warnings.push(`[${mg.queryModelGroup}] Initial count failed: ${error.message}`);
+    }
+
+    console.log(
+      `[${target.canonicalName}] [${mg.queryModelGroup}] ${initialCount.toLocaleString()} listings ` +
+      `(${yearFrom}..${yearTo}), no cap.`
+    );
+
+    const remaining = () => Infinity;
+
+    let buckets;
+    if (initialCount === 0 || initialCount <= SLICING_THRESHOLD) {
+      buckets = [mgYearRange];
+    } else {
+      console.log(
+        `[${target.canonicalName}] [${mg.queryModelGroup}] Over ${SLICING_THRESHOLD.toLocaleString()} threshold; slicing by year…`
+      );
+      try {
+        buckets = await enumerateYearBuckets(subTarget, mgYearRange);
+        console.log(`[${target.canonicalName}] [${mg.queryModelGroup}] ${buckets.length} year buckets.`);
+      } catch (error) {
+        shared.warnings.push(`[${mg.queryModelGroup}] Year-bucket enumeration failed: ${error.message}`);
+        buckets = [mgYearRange];
+      }
+    }
+
+    for (const bucket of buckets) {
+      await _walkBucket(
+        subTarget,
+        bucket,
+        {
+          ...options,
+          exchangeRate,
+          remaining,
+          skipFreshHours: options.skipFreshHours ?? SKIP_FRESH_HOURS,
+        },
+        shared
+      );
+      if (bucket?.overCap) {
+        shared.warnings.push(
+          `[${mg.queryModelGroup}] Bucket ${bucket.from}..${bucket.to} exceeded the API cap; some listings were not fetched.`
+        );
+      }
+    }
+
+    let finalCount = initialCount;
+    try {
+      finalCount = await fetchCount(subTarget, mgYearRange);
+      totalFinalCount += finalCount;
+    } catch (error) {
+      shared.warnings.push(`[${mg.queryModelGroup}] Failed to re-check count: ${error.message}`);
+      totalFinalCount += initialCount;
+    }
+  }
+
+  if (shared.validationSamples.length) {
+    shared.warnings.push(`Validation samples: ${shared.validationSamples.join(' | ')}`);
+  }
+
+  const fetchSucceeded = shared.pageFailures === 0;
+  // Not safe to delete — we only fetched specific model groups, not the
+  // entire make, so DB rows for other models must be preserved.
+  const deletionSafe = false;
+
+  return {
+    rows: shared.rows,
+    meta: {
+      key: target.key,
+      canonicalName: target.canonicalName,
+      queryManufacturer: target.queryManufacturer,
+      initialCount: totalInitialCount,
+      finalCount: totalFinalCount,
+      fetchedListings: shared.seenSourceIds.size,
+      normalizedRows: shared.normalizedCount,
+      skippedListings: shared.skippedListings,
+      priceBelowFloor: shared.priceBelowFloor,
+      freshSkipped: shared.freshSkipped,
+      detailFetched: shared.detailFetched || 0,
+      detailGone: shared.detailGone || 0,
+      detailErrored: shared.detailErrored || 0,
+      duplicateCount: shared.duplicateCount,
+      fetchSucceeded,
+      deletionSafe,
+      seenSourceIds: Array.from(shared.seenSourceIds),
+      warnings: shared.warnings,
+    },
+  };
+}
+
 async function fetchManufacturerCars(target, options = {}) {
+  if (target.modelGroups?.length) {
+    return fetchManufacturerCarsByModelGroups(target, options);
+  }
+
   const exchangeRate = options.exchangeRate || FALLBACK_KRW_TO_EUR_RATE;
   let maxListingsPerMake = parsePositiveInt(options.maxListingsPerMake) || null;
-
-  // Bypass the global limit specifically for Volkswagen to fetch all available listings
-  if (target.canonicalName === 'Volkswagen') {
-    maxListingsPerMake = null;
-  }
 
   const shared = {
     seenSourceIds: new Set(),
