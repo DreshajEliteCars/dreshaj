@@ -441,9 +441,12 @@ const TARGET_MAKES = [
     queryManufacturer: '벤츠',
     aliases: ['benz', 'mercedes', 'mercedes benz', 'mercedes-benz'],
     modelGroups: [
-      { queryModelGroup: 'C클래스', yearFrom: 2016, yearTo: 2019 },
-      { queryModelGroup: 'E클래스', yearFrom: 2016, yearTo: 2019 },
-      { queryModelGroup: 'GLC',     yearFrom: 2016, yearTo: 2019 },
+      // Encar's ModelGroup facet uses a hyphen ("C-클래스", not "C클래스").
+      // The un-hyphenated form silently matches zero listings — verified
+      // against the live API on 2026-08-19.
+      { queryModelGroup: 'C-클래스', yearFrom: 2016, yearTo: 2019 },
+      { queryModelGroup: 'E-클래스', yearFrom: 2016, yearTo: 2019 },
+      { queryModelGroup: 'GLC-클래스', yearFrom: 2016, yearTo: 2019 },
     ],
   },
   {
@@ -1451,7 +1454,7 @@ async function _walkBucket(target, yearRange, options, shared) {
       // continues to know the listing exists.
       if (freshIds.has(sourceId)) {
         shared.freshSkipped += 1;
-        if (remaining && shared.seenSourceIds.size >= shared.maxListings) break;
+        if (remaining && remaining() <= 0) break;
         continue;
       }
 
@@ -1467,7 +1470,7 @@ async function _walkBucket(target, yearRange, options, shared) {
 
       batchRows.push(row);
 
-      if (remaining && shared.seenSourceIds.size >= shared.maxListings) break;
+      if (remaining && remaining() <= 0) break;
     }
 
     if (batchRows.length && options.enrichWithDetail !== false) {
@@ -1492,7 +1495,7 @@ async function _walkBucket(target, yearRange, options, shared) {
 
     offset += results.length;
     if (results.length < limit) return { bucketAdded, bucketCount };
-    if (remaining && shared.seenSourceIds.size >= shared.maxListings) {
+    if (remaining && remaining() <= 0) {
       return { bucketAdded, bucketCount };
     }
     // Pause between pages. The previous batch just bursted ~500
@@ -1713,10 +1716,14 @@ async function fetchManufacturerCars(target, options = {}) {
     }
   }
 
-  // Model-group top-up: after the broad sweep, fetch up to 50 additional
-  // listings per priority model. seenSourceIds deduplicates overlap so the
-  // cap counts only net-new listings added by this pass.
-  const MODEL_GROUP_TOPUP_CAP = 50;
+  // Model-group top-up: after the broad sweep, fetch up to this many
+  // additional listings per priority model. seenSourceIds deduplicates
+  // overlap so the cap counts only net-new listings added by this pass.
+  // Default raised from 50 -> 300 (2026-08-19): a live count check showed
+  // several priority models (BMW 5-Series ~1190, Audi A6 ~794, Benz
+  // E-Class ~1113, Renault QM6 ~656) sitting far above the old 50 cap.
+  const MODEL_GROUP_TOPUP_CAP =
+    parsePositiveInt(process.env.SCRAPER_MODEL_GROUP_TOPUP_CAP) || 300;
   if (target.modelGroups?.length) {
     console.log(`[${target.canonicalName}] Running model-group top-up (${MODEL_GROUP_TOPUP_CAP} extra per model)…`);
     for (const mg of target.modelGroups) {
