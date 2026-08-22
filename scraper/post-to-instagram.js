@@ -24,8 +24,10 @@
  * Required environment variables:
  *   SUPABASE_URL        - project URL (same var the scraper uses)
  *   SUPABASE_KEY         - service-role key (same var the scraper uses)
- *   IG_ACCESS_TOKEN      - long-lived Page access token with instagram_content_publish
- *   IG_BUSINESS_ID       - Instagram Business Account ID (not the Page ID)
+ *   IG_ACCESS_TOKEN      - long-lived Instagram user access token (from Instagram Login,
+ *                          graph.instagram.com) with instagram_business_content_publish
+ *   IG_BUSINESS_ID       - Instagram Business Account ID (same value returned as the
+ *                          user id when the token was generated)
  *
  * Optional:
  *   IG_POSTS_PER_RUN        - how many unposted cars to publish this run, default 5
@@ -47,13 +49,23 @@ const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 const GRAPH_API_VERSION = 'v21.0';
-const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+const GRAPH_API_BASE = `https://graph.instagram.com/${GRAPH_API_VERSION}`;
 
 const IG_CONTACT_PHONE = process.env.IG_CONTACT_PHONE || '+383 49 845 745';
 const IG_SITE_URL = process.env.IG_SITE_URL || 'dreshajelitecars.com';
 const IG_DRY_RUN = String(process.env.IG_DRY_RUN).toLowerCase() === 'true';
 const MAX_CAROUSEL_IMAGES = parsePositiveInt(process.env.IG_MAX_CAROUSEL_IMAGES) || 10;
 const POSTS_PER_RUN = parsePositiveInt(process.env.IG_POSTS_PER_RUN) || 5;
+
+// One post per brand per run, in this order — five brands, five posts a
+// day. `make` values must match `cars.make` exactly (see the scraper's
+// carlist.txt / Encar manufacturer naming), e.g. "Mercedes-Benz" not
+// "Benz", "Volkswagen" not "VW". Override via IG_TARGET_BRANDS
+// (comma-separated) without touching code.
+const DEFAULT_TARGET_BRANDS = ['BMW', 'Mercedes-Benz', 'Audi', 'Volkswagen', 'Renault'];
+const TARGET_BRANDS = process.env.IG_TARGET_BRANDS
+  ? process.env.IG_TARGET_BRANDS.split(',').map((s) => s.trim()).filter(Boolean)
+  : DEFAULT_TARGET_BRANDS;
 
 // Mirrors src/lib/appSettings.ts DEFAULT_SHIP_PRICE_EUR — only used if the
 // app_settings row can't be read for some reason, so a DB hiccup doesn't
@@ -95,24 +107,19 @@ function buildCaption(car, shipPriceEur) {
   const displayPriceEur = applyShipPrice(car.price_eur, shipPriceEur);
   const price = displayPriceEur != null ? `${displayPriceEur.toLocaleString('en-US')}€` : 'Kontaktoni për çmim';
 
-  return `${title}
+  return `🚗 ${title}
 
-Dreshaj Elite Cars
+✨ Dreshaj Elite Cars ✨
 
-Çmimi deri në Durrës: ${price} (pa doganë)
-Deri në Prishtinë: +350€
+💶 Çmimi deri në Durrës: ${price} (pa doganë)
+📍 Deri në Prishtinë: +350€
 
-Viti: ${registration}
-Kilometrazha: ${km}
-Transmisioni: ${car.transmission || 'N/A'}
-Karburanti: ${car.fuel_type || 'N/A'}
+📅 Viti: ${registration}
+🛣️ Kilometrazha: ${km}
+⚙️ Transmisioni: ${car.transmission || 'N/A'}
 
-Çmimi përfshin blerjen e veturës, transportin brenda Koresë, dokumentacionin e eksportit dhe transportin detar deri në Durrës. Deri në Prishtinë shtohet fletëlëshimi nga porti dhe transporti me shlepa.
-
-Koha mesatare e transportit: 33 ditë. Çmimi mund të ndryshojë sipas kostove aktuale të transportit — veturat vijnë vetëm me porosi direkt nga Koreja.
-
-Kontakt: ${IG_CONTACT_PHONE} (Viber / WhatsApp)
-${IG_SITE_URL}`;
+📞 Kontakt: ${IG_CONTACT_PHONE} (Viber / WhatsApp)
+🌐 ${IG_SITE_URL}`;
 }
 
 // -----------------------------------------------------------------------------
@@ -139,19 +146,34 @@ async function fetchCarById(supabase, carId) {
   return data;
 }
 
-/** Next `limit` cars that haven't been posted to Instagram yet, freshest first. */
-async function fetchUnpostedCars(supabase, limit) {
-  const { data, error } = await supabase
-    .from('cars')
-    .select('*')
-    .is('ig_posted_at', null)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+/**
+ * One unposted car per brand, in TARGET_BRANDS order — freshest listing
+ * for each. Keeps the feed varied instead of e.g. 5 BMWs in a row when
+ * BMW happens to have the most recent inventory. A brand with no
+ * unposted stock right now is simply skipped for this run (not an
+ * error — it'll catch up whenever new stock lands).
+ */
+async function fetchUnpostedCarsByBrand(supabase, brands) {
+  const picks = [];
+  for (const make of brands) {
+    const { data, error } = await supabase
+      .from('cars')
+      .select('*')
+      .is('ig_posted_at', null)
+      .eq('make', make)
+      .order('created_at', { ascending: false })
+      .limit(1);
 
-  if (error) {
-    throw new Error(`Supabase query failed: ${error.message}`);
+    if (error) {
+      throw new Error(`Supabase query failed for make "${make}": ${error.message}`);
+    }
+    if (data && data.length) {
+      picks.push(data[0]);
+    } else {
+      console.log(`No unposted "${make}" inventory right now — skipping this run.`);
+    }
   }
-  return data || [];
+  return picks;
 }
 
 /** Same singleton row src/app/api/settings/route.ts reads (`app_settings`, id=1). */
@@ -203,11 +225,42 @@ async function publishContainer(igBusinessId, accessToken, creationId) {
   return data.id;
 }
 
+// Container creation returns immediately, but Instagram processes the
+// media (esp. multi-image carousels) asynchronously — publishing before
+// status_code is FINISHED fails with "Media ID is not available"
+// (code 9007 / subcode 2207027). Poll until it's ready instead of
+// publishing blind.
+const CONTAINER_POLL_INTERVAL_MS = 3000;
+const CONTAINER_POLL_MAX_ATTEMPTS = 20; // ~1 minute worst case
+
+async function waitForContainerReady(accessToken, creationId) {
+  for (let attempt = 1; attempt <= CONTAINER_POLL_MAX_ATTEMPTS; attempt += 1) {
+    const { data } = await axios.get(`${GRAPH_API_BASE}/${creationId}`, {
+      params: { fields: 'status_code', access_token: accessToken },
+    });
+
+    if (data.status_code === 'FINISHED') return;
+    if (data.status_code === 'ERROR') {
+      throw new Error(`Container "${creationId}" failed processing (status_code=ERROR).`);
+    }
+    // IN_PROGRESS / EXPIRED / PUBLISHED all fall through to another poll,
+    // except EXPIRED which we bail out on immediately below.
+    if (data.status_code === 'EXPIRED') {
+      throw new Error(`Container "${creationId}" expired before it could be published.`);
+    }
+
+    await sleep(CONTAINER_POLL_INTERVAL_MS);
+  }
+
+  throw new Error(`Container "${creationId}" never reached FINISHED after ${CONTAINER_POLL_MAX_ATTEMPTS} polls.`);
+}
+
 async function postSingleImage({ igBusinessId, accessToken, imageUrl, caption }) {
   const creationId = await createContainer(igBusinessId, accessToken, {
     image_url: imageUrl,
     caption,
   });
+  await waitForContainerReady(accessToken, creationId);
   return publishContainer(igBusinessId, accessToken, creationId);
 }
 
@@ -228,6 +281,7 @@ async function postCarousel({ igBusinessId, accessToken, imageUrls, caption }) {
     caption,
   });
 
+  await waitForContainerReady(accessToken, parentId);
   return publishContainer(igBusinessId, accessToken, parentId);
 }
 
@@ -281,15 +335,19 @@ async function main() {
     return;
   }
 
-  // Batch mode: up to POSTS_PER_RUN cars that haven't been posted yet.
-  const cars = await fetchUnpostedCars(supabase, POSTS_PER_RUN);
+  // Batch mode: one unposted car per brand in TARGET_BRANDS, capped at
+  // POSTS_PER_RUN (so adding a 6th brand later doesn't silently blow past
+  // the daily cap).
+  const cars = (await fetchUnpostedCarsByBrand(supabase, TARGET_BRANDS)).slice(0, POSTS_PER_RUN);
 
   if (cars.length === 0) {
-    console.log('No unposted cars found — nothing to do.');
+    console.log('No unposted cars found for any target brand — nothing to do.');
     return;
   }
 
-  console.log(`Posting ${cars.length} car(s) this run (cap: ${POSTS_PER_RUN}). Ship price: ${shipPriceEur}€.`);
+  console.log(
+    `Posting ${cars.length} car(s) this run — brands: ${TARGET_BRANDS.join(', ')} (cap: ${POSTS_PER_RUN}). Ship price: ${shipPriceEur}€.`
+  );
 
   for (const [index, car] of cars.entries()) {
     try {

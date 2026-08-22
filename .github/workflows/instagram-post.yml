@@ -9,14 +9,19 @@
 #
 #   SUPABASE_URL       Supabase project URL (same one scraper.yml uses)
 #   SUPABASE_KEY        service-role key (same one scraper.yml uses)
-#   IG_ACCESS_TOKEN     Page access token with instagram_content_publish
-#   IG_BUSINESS_ID       Instagram Business Account ID
+#   IG_ACCESS_TOKEN     long-lived Instagram user access token (Instagram Login,
+#                       graph.instagram.com) with instagram_business_content_publish
+#   IG_BUSINESS_ID       Instagram Business Account ID (the user id returned
+#                       alongside the access token)
 #
 # Optional repository variables:
 #
 #   IG_POSTS_PER_RUN     cap on posts per run, default 5
 #   IG_CONTACT_PHONE     default "+383 49 845 745"
 #   IG_SITE_URL           default "dreshajelitecars.com"
+#   IG_TARGET_BRANDS     comma-separated cars.make values, one post per
+#                        brand per run, default "BMW,Mercedes-Benz,Audi,
+#                        Volkswagen,Renault"
 
 name: Instagram post
 
@@ -74,5 +79,6 @@ jobs:
           IG_POSTS_PER_RUN: ${{ vars.IG_POSTS_PER_RUN }}
           IG_CONTACT_PHONE: ${{ vars.IG_CONTACT_PHONE }}
           IG_SITE_URL: ${{ vars.IG_SITE_URL }}
+          IG_TARGET_BRANDS: ${{ vars.IG_TARGET_BRANDS }}
           IG_DRY_RUN: ${{ inputs.dry_run }}
         run: node post-to-instagram.js ${{ inputs.car_id }}
