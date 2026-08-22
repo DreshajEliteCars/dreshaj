@@ -7,7 +7,8 @@
   "scripts": {
     "sync": "node scraper.js",
     "test:api": "node test-api.mjs",
-    "test:dry": "node dry-run.mjs"
+    "test:dry": "node dry-run.mjs",
+    "post:ig": "node post-to-instagram.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

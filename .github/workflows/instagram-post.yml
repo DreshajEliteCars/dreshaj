@@ -1,0 +1,78 @@
+# Supabase `cars` -> Instagram poster.
+#
+# Runs once a day, independently of the scraper's own cron (which can drop
+# thousands of rows into `cars` per sync — see scraper.yml). This job only
+# ever posts up to IG_POSTS_PER_RUN *unposted* listings (default 5), so the
+# scraper ingesting a big batch never translates into a flood of IG posts.
+#
+# To enable, configure these repository secrets:
+#
+#   SUPABASE_URL       Supabase project URL (same one scraper.yml uses)
+#   SUPABASE_KEY        service-role key (same one scraper.yml uses)
+#   IG_ACCESS_TOKEN     Page access token with instagram_content_publish
+#   IG_BUSINESS_ID       Instagram Business Account ID
+#
+# Optional repository variables:
+#
+#   IG_POSTS_PER_RUN     cap on posts per run, default 5
+#   IG_CONTACT_PHONE     default "+383 49 845 745"
+#   IG_SITE_URL           default "dreshajelitecars.com"
+
+name: Instagram post
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print captions/payloads without posting or touching the DB."
+        required: false
+        default: "false"
+      car_id:
+        description: "Post one specific car id, ignoring the daily cap. Empty = normal batch run."
+        required: false
+        default: ""
+  schedule:
+    # Once a day at 10:00 UTC — safely inside Instagram's own ~25 posts/day
+    # cap even with a generous IG_POSTS_PER_RUN.
+    - cron: "0 10 * * *"
+
+jobs:
+  post:
+    name: Post unposted cars to Instagram
+    runs-on: ubuntu-latest
+    # POSTS_PER_RUN posts, each separated by IG_POST_STEP_DELAY_MS (default
+    # 1 min) — plenty of headroom under the default 5-post/~5-minute run.
+    timeout-minutes: 20
+    concurrency:
+      # Never run two posting jobs in parallel — they could both grab the
+      # same "unposted" rows before either one's ig_posted_at write lands.
+      group: instagram-post
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scraper/package-lock.json
+
+      - name: Install scraper deps
+        working-directory: scraper
+        run: npm ci
+
+      - name: Run poster
+        working-directory: scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_BUSINESS_ID: ${{ secrets.IG_BUSINESS_ID }}
+          IG_POSTS_PER_RUN: ${{ vars.IG_POSTS_PER_RUN }}
+          IG_CONTACT_PHONE: ${{ vars.IG_CONTACT_PHONE }}
+          IG_SITE_URL: ${{ vars.IG_SITE_URL }}
+          IG_DRY_RUN: ${{ inputs.dry_run }}
+        run: node post-to-instagram.js ${{ inputs.car_id }}
