@@ -1,9 +1,16 @@
 # Supabase `cars` -> Instagram poster.
 #
-# Runs once a day, independently of the scraper's own cron (which can drop
-# thousands of rows into `cars` per sync — see scraper.yml). This job only
-# ever posts up to IG_POSTS_PER_RUN *unposted* listings (default 5), so the
-# scraper ingesting a big batch never translates into a flood of IG posts.
+# Triggers right after the *morning* scraper sync finishes (see
+# scraper.yml — cron "15 */12 * * *", runs at 00:15 and 12:15 UTC), instead
+# of on its own fixed clock time. That way the cars it posts always come
+# from the sync that just landed, not from up to ~10h-stale data. The
+# scraper's evening run (12:15) is deliberately skipped here (see the job
+# `if:` below) so this still only fires once a day, keeping IG_POSTS_PER_RUN
+# posts/day instead of doubling to one batch per sync.
+#
+# This job only ever posts up to IG_POSTS_PER_RUN *unposted* listings
+# (default 5), so a scraper sync dropping thousands of rows never
+# translates into a flood of IG posts.
 #
 # To enable, configure these repository secrets:
 #
@@ -36,15 +43,25 @@ on:
         description: "Post one specific car id, ignoring the daily cap. Empty = normal batch run."
         required: false
         default: ""
-  schedule:
-    # Once a day at 10:00 UTC — safely inside Instagram's own ~25 posts/day
-    # cap even with a generous IG_POSTS_PER_RUN.
-    - cron: "0 10 * * *"
+  workflow_run:
+    # Must match scraper.yml's `name:` exactly.
+    workflows: ["Scraper sync"]
+    types: [completed]
 
 jobs:
   post:
     name: Post unposted cars to Instagram
     runs-on: ubuntu-latest
+    # Manual runs always proceed. Automatic (workflow_run) runs only
+    # proceed if the scraper sync actually succeeded, and only for the
+    # run that started in the 00:xx UTC hour (the "15 */12 * * *" cron's
+    # first daily run) — the 12:xx run is skipped so this stays a once-
+    # a-day job, not once per sync.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       contains(github.event.workflow_run.run_started_at, 'T00:'))
     # POSTS_PER_RUN posts, each separated by IG_POST_STEP_DELAY_MS (default
     # 1 min) — plenty of headroom under the default 5-post/~5-minute run.
     timeout-minutes: 20
