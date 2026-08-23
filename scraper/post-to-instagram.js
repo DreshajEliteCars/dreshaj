@@ -107,20 +107,20 @@ function buildCaption(car, shipPriceEur) {
   const displayPriceEur = applyShipPrice(car.price_eur, shipPriceEur);
   const price = displayPriceEur != null ? `${displayPriceEur.toLocaleString('en-US')}€` : 'Kontaktoni për çmim';
 
-  return `${title}
+  return `🚗 ${title}
 
-Dreshaj Elite Cars
+✨ Dreshaj Elite Cars ✨
 
-Çmimi deri në Durrës: ${price} (pa doganë)
-Deri në Kosovë: +350€
+💶 Çmimi deri në Durrës: ${price} (pa doganë)
+📍 Deri në Kosovë: +350€
 
-Viti: ${registration}
-Kilometrazha: ${km}
-Transmisioni: ${car.transmission || 'N/A'}
-Karburanti: ${car.fuel_type || 'N/A'}
+📅 Viti: ${registration}
+🛣️ Kilometrazha: ${km}
+⚙️ Transmisioni: ${car.transmission || 'N/A'}
+⛽ Karburanti: ${car.fuel_type || 'N/A'}
 
-Kontakt: ${IG_CONTACT_PHONE} (Viber / WhatsApp)
-${IG_SITE_URL}`;
+📞 Kontakt: ${IG_CONTACT_PHONE} (Viber / WhatsApp)
+🌐 ${IG_SITE_URL}`;
 }
 
 // -----------------------------------------------------------------------------
