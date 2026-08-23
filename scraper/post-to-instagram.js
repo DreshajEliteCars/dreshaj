@@ -107,19 +107,20 @@ function buildCaption(car, shipPriceEur) {
   const displayPriceEur = applyShipPrice(car.price_eur, shipPriceEur);
   const price = displayPriceEur != null ? `${displayPriceEur.toLocaleString('en-US')}€` : 'Kontaktoni për çmim';
 
-  return `🚗 ${title}
+  return `${title}
 
-✨ Dreshaj Elite Cars ✨
+Dreshaj Elite Cars
 
-💶 Çmimi deri në Durrës: ${price} (pa doganë)
-📍 Deri në Prishtinë: +350€
+Çmimi deri në Durrës: ${price} (pa doganë)
+Deri në Kosovë: +350€
 
-📅 Viti: ${registration}
-🛣️ Kilometrazha: ${km}
-⚙️ Transmisioni: ${car.transmission || 'N/A'}
+Viti: ${registration}
+Kilometrazha: ${km}
+Transmisioni: ${car.transmission || 'N/A'}
+Karburanti: ${car.fuel_type || 'N/A'}
 
-📞 Kontakt: ${IG_CONTACT_PHONE} (Viber / WhatsApp)
-🌐 ${IG_SITE_URL}`;
+Kontakt: ${IG_CONTACT_PHONE} (Viber / WhatsApp)
+${IG_SITE_URL}`;
 }
 
 // -----------------------------------------------------------------------------
@@ -147,11 +148,14 @@ async function fetchCarById(supabase, carId) {
 }
 
 /**
- * One unposted car per brand, in TARGET_BRANDS order — freshest listing
- * for each. Keeps the feed varied instead of e.g. 5 BMWs in a row when
- * BMW happens to have the most recent inventory. A brand with no
- * unposted stock right now is simply skipped for this run (not an
- * error — it'll catch up whenever new stock lands).
+ * One unposted, Diesel-only car per brand, in TARGET_BRANDS order —
+ * freshest listing for each. Keeps the feed varied instead of e.g. 5
+ * BMWs in a row when BMW happens to have the most recent inventory.
+ * `fuel_type` is normalized by the scraper to exactly "Diesel"
+ * (scraper/scraper.js normalizeFuelType) — Petrol/Hibrid/Elektrik/LPG
+ * listings are excluded. A brand with no unposted Diesel stock right
+ * now is simply skipped for this run (not an error — it'll catch up
+ * whenever new stock lands).
  */
 async function fetchUnpostedCarsByBrand(supabase, brands) {
   const picks = [];
@@ -161,6 +165,7 @@ async function fetchUnpostedCarsByBrand(supabase, brands) {
       .select('*')
       .is('ig_posted_at', null)
       .eq('make', make)
+      .eq('fuel_type', 'Diesel')
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -170,7 +175,7 @@ async function fetchUnpostedCarsByBrand(supabase, brands) {
     if (data && data.length) {
       picks.push(data[0]);
     } else {
-      console.log(`No unposted "${make}" inventory right now — skipping this run.`);
+      console.log(`No unposted Diesel "${make}" inventory right now — skipping this run.`);
     }
   }
   return picks;
