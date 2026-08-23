@@ -1,18 +1,17 @@
 # Supabase `cars` -> Instagram poster.
 #
-# Triggers right after the *morning* scraper sync finishes (see
-# scraper.yml — cron "15 */12 * * *", nominally 00:15 and 12:15 UTC, though
-# scheduled runs commonly start later than the cron time under queue load),
-# instead of on its own fixed clock time. That way the cars it posts always
-# come from the sync that just landed, not from up to ~10h-stale data. The
-# `gate` job below decides which trigger actually gets to post by parsing
-# the real UTC hour the scraper run started (0-11 = morning, 12-23 =
-# evening, skipped) — not a literal string match on the cron's nominal
-# time, which breaks the moment a run starts even a few minutes late.
+# Runs once a day at a fixed clock time: 14:00 UTC = 16:00 (4pm) in Kosovo
+# during CEST (summer). GitHub Actions schedules always run in UTC and
+# Kosovo observes EU daylight saving, so this cron will read as 3pm Kosovo
+# time during CET (winter, roughly late Oct - late Mar) until it's bumped
+# to 15:00 UTC for that half of the year — update the cron below if that
+# drift needs fixing.
 #
-# This job only ever posts up to IG_POSTS_PER_RUN *unposted* listings
-# (default 5), so a scraper sync dropping thousands of rows never
-# translates into a flood of IG posts.
+# Posts up to IG_POSTS_PER_RUN *unposted* listings (default 5), so a
+# scraper sync dropping thousands of rows never translates into a flood
+# of IG posts. Independent of the scraper's own schedule (scraper.yml) —
+# whatever's unposted in the DB at 14:00 UTC gets posted, from whichever
+# sync landed most recently.
 #
 # To enable, configure these repository secrets:
 #
@@ -45,47 +44,13 @@ on:
         description: "Post one specific car id, ignoring the daily cap. Empty = normal batch run."
         required: false
         default: ""
-  workflow_run:
-    # Must match scraper.yml's `name:` exactly.
-    workflows: ["Scraper sync"]
-    types: [completed]
+  schedule:
+    # 14:00 UTC daily = 16:00 (4pm) Kosovo time during CEST.
+    - cron: "0 14 * * *"
 
 jobs:
-  gate:
-    # Decides whether this trigger should actually post, without relying on
-    # the workflow_run event firing at a precise clock time — scheduled
-    # GitHub Actions runs routinely start late (queue congestion can push
-    # the "00:15 UTC" cron well past 01:00), so a literal string match like
-    # contains(run_started_at, 'T00:') silently skips every run, including
-    # the ones that were supposed to fire. This parses the actual hour
-    # instead and splits the day at 12:00 UTC, which tolerates hours of
-    # drift while still telling the morning sync apart from the evening one.
-    name: Decide whether to post this trigger
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    outputs:
-      should_post: ${{ steps.check.outputs.should_post }}
-    steps:
-      - name: Check trigger window
-        id: check
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_post=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          hour=$(date -u -d "${{ github.event.workflow_run.run_started_at }}" +%H)
-          # 00-11 UTC = the morning sync (whenever it actually started);
-          # 12-23 UTC = the evening sync, skipped so this stays once-a-day.
-          if [ "$hour" -lt 12 ]; then
-            echo "should_post=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_post=false" >> "$GITHUB_OUTPUT"
-          fi
-
   post:
     name: Post unposted cars to Instagram
-    needs: gate
-    if: needs.gate.outputs.should_post == 'true'
     runs-on: ubuntu-latest
     # POSTS_PER_RUN posts, each separated by IG_POST_STEP_DELAY_MS (default
     # 1 min) — plenty of headroom under the default 5-post/~5-minute run.
