@@ -25,7 +25,7 @@
 # Optional repository variables:
 #
 #   IG_POSTS_PER_RUN     cap on posts per run, default 5
-#   IG_CONTACT_PHONE     default "+383 49 845 745"
+#   IG_CONTACT_PHONE     default "+37744202673"
 #   IG_SITE_URL           default "dreshajelitecars.com"
 #   IG_TARGET_BRANDS     comma-separated cars.make values, one post per
 #                        brand per run, default "BMW,Mercedes-Benz,Audi,

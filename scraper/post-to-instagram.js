@@ -31,7 +31,7 @@
  *
  * Optional:
  *   IG_POSTS_PER_RUN        - how many unposted cars to publish this run, default 5
- *   IG_CONTACT_PHONE        - default "+383 49 845 745"
+ *   IG_CONTACT_PHONE        - default "+37744202673"
  *   IG_SITE_URL              - default "dreshajelitecars.com"
  *   IG_DRY_RUN                - "true" to build + print payloads without calling the API
  *                              or writing ig_posted_at
@@ -51,7 +51,7 @@ require('dotenv').config();
 const GRAPH_API_VERSION = 'v21.0';
 const GRAPH_API_BASE = `https://graph.instagram.com/${GRAPH_API_VERSION}`;
 
-const IG_CONTACT_PHONE = process.env.IG_CONTACT_PHONE || '+383 49 845 745';
+const IG_CONTACT_PHONE = process.env.IG_CONTACT_PHONE || '+37744202673';
 const IG_SITE_URL = process.env.IG_SITE_URL || 'dreshajelitecars.com';
 const IG_DRY_RUN = String(process.env.IG_DRY_RUN).toLowerCase() === 'true';
 const MAX_CAROUSEL_IMAGES = parsePositiveInt(process.env.IG_MAX_CAROUSEL_IMAGES) || 10;
