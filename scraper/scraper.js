@@ -445,7 +445,9 @@ const TARGET_MAKES = [
       // The un-hyphenated form silently matches zero listings — verified
       // against the live API on 2026-08-19.
       { queryModelGroup: 'C-클래스', yearFrom: 2016, yearTo: 2019 },
-      { queryModelGroup: 'E-클래스', yearFrom: 2016, yearTo: 2019 },
+      // Raised cap (2026-08-23): live check showed 1,093 available vs. the
+      // shared 300 default — this alone leaves ~793 listings unclaimed.
+      { queryModelGroup: 'E-클래스', yearFrom: 2016, yearTo: 2019, topupCap: 1100 },
       { queryModelGroup: 'GLC-클래스', yearFrom: 2016, yearTo: 2019 },
     ],
   },
@@ -458,7 +460,8 @@ const TARGET_MAKES = [
       { queryModelGroup: '5시리즈', yearFrom: 2016, yearTo: 2020 },
       { queryModelGroup: '1시리즈', yearFrom: 2016, yearTo: 2018 },
       { queryModelGroup: '4시리즈', yearFrom: 2016, yearTo: 2018 },
-      { queryModelGroup: '3시리즈', yearFrom: 2016, yearTo: 2023 },
+      // Raised cap (2026-08-23): 724 available vs. the shared 300 default.
+      { queryModelGroup: '3시리즈', yearFrom: 2016, yearTo: 2023, topupCap: 1100 },
       { queryModelGroup: 'X3',      yearFrom: null, yearTo: 2018 },
       { queryModelGroup: 'X4',      yearFrom: 2016, yearTo: 2018 },
     ],
@@ -470,7 +473,8 @@ const TARGET_MAKES = [
     queryManufacturer: '아우디',
     aliases: ['audi'],
     modelGroups: [
-      { queryModelGroup: 'A6', yearFrom: 2016, yearTo: null },
+      // Raised cap (2026-08-23): 786 available vs. the shared 300 default.
+      { queryModelGroup: 'A6', yearFrom: 2016, yearTo: null, topupCap: 1100 },
       { queryModelGroup: 'A4', yearFrom: 2016, yearTo: 2019 },
       { queryModelGroup: 'A7', yearFrom: 2016, yearTo: 2020 },
       { queryModelGroup: 'Q3', yearFrom: 2016, yearTo: 2019 },
@@ -1725,15 +1729,19 @@ async function fetchManufacturerCars(target, options = {}) {
   const MODEL_GROUP_TOPUP_CAP =
     parsePositiveInt(process.env.SCRAPER_MODEL_GROUP_TOPUP_CAP) || 300;
   if (target.modelGroups?.length) {
-    console.log(`[${target.canonicalName}] Running model-group top-up (${MODEL_GROUP_TOPUP_CAP} extra per model)…`);
+    console.log(`[${target.canonicalName}] Running model-group top-up (${MODEL_GROUP_TOPUP_CAP} extra per model, unless overridden)…`);
     for (const mg of target.modelGroups) {
       const subTarget = { ...target, queryModelGroup: mg.queryModelGroup };
       const yearFrom = mg.yearFrom ? mg.yearFrom * 100 + 1 : MIN_YEAR_MM;
       const yearTo   = mg.yearTo   ? mg.yearTo   * 100 + 12 : MAX_YEAR_MM;
       const mgYearRange = { from: yearFrom, to: yearTo };
 
+      // Per-model override (mg.topupCap) beats the shared default — set on
+      // specific high-inventory models (see the TARGET_MAKES entries above)
+      // instead of raising MODEL_GROUP_TOPUP_CAP globally for every model.
+      const effectiveCap = parsePositiveInt(mg.topupCap) || MODEL_GROUP_TOPUP_CAP;
       const sizeBeforeTopup = shared.seenSourceIds.size;
-      const mgRemaining = () => MODEL_GROUP_TOPUP_CAP - (shared.seenSourceIds.size - sizeBeforeTopup);
+      const mgRemaining = () => effectiveCap - (shared.seenSourceIds.size - sizeBeforeTopup);
 
       let mgCount = 0;
       try {
@@ -1743,7 +1751,7 @@ async function fetchManufacturerCars(target, options = {}) {
       }
 
       console.log(
-        `[${target.canonicalName}] [${mg.queryModelGroup}] top-up: ${mgCount.toLocaleString()} available (${yearFrom}..${yearTo}), cap +${MODEL_GROUP_TOPUP_CAP}.`
+        `[${target.canonicalName}] [${mg.queryModelGroup}] top-up: ${mgCount.toLocaleString()} available (${yearFrom}..${yearTo}), cap +${effectiveCap}.`
       );
 
       let mgBuckets;
