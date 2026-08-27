@@ -105,11 +105,31 @@ export async function GET(req: Request): Promise<Response> {
   const from = (page - 1) * pageSize;
   q = q.range(from, from + pageSize - 1);
 
-  const { data, count, error } = await q;
+  // Serverless cold starts occasionally hit a transient network blip on the
+  // very first request to Supabase after the function has been idle — the
+  // symptom is exactly "fails once, works on refresh" rather than a real
+  // query error. One quick retry absorbs that instead of surfacing a 500
+  // the user then has to manually retry by reloading the page.
+  const MAX_ATTEMPTS = 2;
+  let data: unknown[] | null = null;
+  let count: number | null = null;
+  let error: { message: string } | null = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const result = await q;
+    data = result.data;
+    count = result.count;
+    error = result.error;
+    if (!error) break;
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
   if (error) {
     return NextResponse.json(
       { cars: [], total: 0, error: error.message },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 
