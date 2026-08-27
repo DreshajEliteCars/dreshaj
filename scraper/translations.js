@@ -225,6 +225,23 @@ const MODELS = {
   '샤란': 'Sharan',
   '뉴비틀': 'New Beetle',
 
+  // Renault -------------------------------------------------------------------
+  // No Renault section existed at all before this — every Korean-script
+  // Renault model name fell through to the raw transliterator instead of
+  // a real translation (e.g. '클리오' -> "Cilo" instead of "Clio").
+  '클리오': 'Clio',
+  '아르카나': 'Arkana',
+  '콜레오스': 'Koleos',
+  '캡처': 'Captur',
+  '트위지': 'Twizy',
+  '탈리스만': 'Talisman',
+  '메간': 'Megane',
+  '세닉': 'Scenic',
+  '트위고': 'Twingo',
+  '조에': 'Zoe',
+  '캡쳐': 'Captur',
+  '인텐스': 'Intense',
+
   // Volvo, Jaguar, Land Rover -----------------------------------------------
   '볼보': 'Volvo',
   '디스커버리': 'Discovery',
