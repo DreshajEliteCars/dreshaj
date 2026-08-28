@@ -9,6 +9,12 @@
  * A car is only ever posted once — once `ig_posted_at` is set it's
  * excluded from future runs.
  *
+ * Batch mode is also idempotent per UTC day (hasPostedToday()): if
+ * anything already posted today, later runs skip instead of posting a
+ * second batch. This is what lets the GitHub Actions schedule fire
+ * several times across a window as a safety net against a dropped or
+ * delayed cron tick, rather than depending on exactly one tick landing.
+ *
  * Single photo  -> one `/media` call, image_url + caption, straight to publish.
  * Multiple photos -> carousel: each image becomes a child container
  * (`is_carousel_item=true`), then a parent CAROUSEL container references
@@ -193,6 +199,31 @@ async function fetchShipPriceEur(supabase) {
   return data.ship_price_eur;
 }
 
+/**
+ * True if any car was already marked posted today (UTC calendar day).
+ * Lets the GitHub Actions schedule fire several times across a window
+ * instead of depending on one specific cron tick landing — GitHub's own
+ * docs acknowledge scheduled workflows "may not run" some days under
+ * load, with no guarantee. Checking more often only helps if a second
+ * check within the same day is a safe no-op instead of a second batch
+ * of posts, which is what this guards.
+ */
+async function hasPostedToday(supabase) {
+  const startOfDayUtc = new Date();
+  startOfDayUtc.setUTCHours(0, 0, 0, 0);
+
+  const { count, error } = await supabase
+    .from('cars')
+    .select('id', { count: 'exact', head: true })
+    .gte('ig_posted_at', startOfDayUtc.toISOString());
+
+  if (error) {
+    console.error(`Warning: couldn't check today's post count (${error.message}) — proceeding as if not yet posted.`);
+    return false;
+  }
+  return (count ?? 0) > 0;
+}
+
 async function markPosted(supabase, carId) {
   const { error } = await supabase.from('cars').update({ ig_posted_at: new Date().toISOString() }).eq('id', carId);
   if (error) {
@@ -337,6 +368,16 @@ async function main() {
   if (carId) {
     const car = await fetchCarById(supabase, carId);
     await postOneCar(car, shipPriceEur, igConfig);
+    return;
+  }
+
+  // Batch mode is idempotent per UTC day: if today's batch already went
+  // out (via an earlier tick of the same schedule, or a manual run),
+  // skip rather than post a second batch. This is what makes it safe for
+  // the GitHub Actions schedule to fire more than once a day as a safety
+  // net against a dropped/delayed cron tick — see hasPostedToday().
+  if (!IG_DRY_RUN && (await hasPostedToday(supabase))) {
+    console.log('Already posted today — skipping this run.');
     return;
   }
 

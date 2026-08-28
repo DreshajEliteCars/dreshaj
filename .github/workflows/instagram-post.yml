@@ -1,19 +1,20 @@
 # Supabase `cars` -> Instagram poster.
 #
-# Runs once a day at a fixed clock time: 14:05 UTC = ~16:05 (4pm) in Kosovo
-# during CEST (summer). GitHub Actions schedules always run in UTC and
-# Kosovo observes EU daylight saving, so this cron will read as ~3pm Kosovo
-# time during CET (winter, roughly late Oct - late Mar) until it's bumped
-# to 15:05 UTC for that half of the year — update the cron below if that
-# drift needs fixing.
+# Targets 4pm Kosovo time (~14:00-16:00 UTC depending on CEST/CET), but
+# does NOT rely on any single cron tick landing. GitHub's own docs
+# acknowledge scheduled workflows "can be delayed" under load and, in
+# practice, can be dropped outright some days with no run at all —
+# confirmed twice against this exact workflow (2026-08-27 with the
+# original "0 14 * * *", then again on 2026-08-28 with an off-the-hour
+# "5 14 * * *" — neither guarantee actually fired that day).
 #
-# Scheduled 5 minutes past the hour, not exactly on it: GitHub explicitly
-# documents that on-the-hour crons (":00") are the most likely to be
-# delayed or silently dropped under load, since every repo's hourly/daily
-# jobs pile up at the same instant. scraper.yml already does this
-# (":15") for the same reason — this workflow's original "0 14 * * *"
-# didn't, and its very first scheduled run after that got dropped
-# entirely (2026-08-27, confirmed via the Actions API: zero runs that day).
+# Instead this fires six times across a 14:00-15:59 UTC window (every ~20
+# min) and relies on the poster script's own idempotency guard
+# (hasPostedToday() in post-to-instagram.js) to make every tick except
+# the first a safe no-op — it only actually posts once the DB shows
+# nothing posted yet today. As long as at least one of the six ticks
+# lands, the day's batch goes out; losing five out of six would need to
+# happen for this to miss a day entirely.
 #
 # Posts up to IG_POSTS_PER_RUN *unposted* listings (default 5), so a
 # scraper sync dropping thousands of rows never translates into a flood
@@ -53,9 +54,11 @@ on:
         required: false
         default: ""
   schedule:
-    # 14:05 UTC daily = ~16:05 (4pm) Kosovo time during CEST. Offset from
-    # the hour on purpose — see the header comment above.
-    - cron: "5 14 * * *"
+    # Six attempts every ~20 min across 14:00-15:59 UTC, offset off the
+    # hour — see the header comment above for why. Only the first tick
+    # that actually lands does anything; the rest are idempotent no-ops
+    # via hasPostedToday().
+    - cron: "5,25,45 14,15 * * *"
 
 jobs:
   post:
