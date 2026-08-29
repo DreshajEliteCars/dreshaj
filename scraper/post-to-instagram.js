@@ -218,8 +218,12 @@ async function hasPostedToday(supabase) {
     .gte('ig_posted_at', startOfDayUtc.toISOString());
 
   if (error) {
-    console.error(`Warning: couldn't check today's post count (${error.message}) — proceeding as if not yet posted.`);
-    return false;
+    // Fail closed: if we can't confirm whether today's batch went out,
+    // skip this run rather than risk posting a duplicate batch. With 15
+    // scheduled ticks a day, a later tick will retry once the DB is
+    // reachable again.
+    console.error(`Warning: couldn't check today's post count (${error.message}) — skipping this run to avoid a possible duplicate batch.`);
+    return true;
   }
   return (count ?? 0) > 0;
 }

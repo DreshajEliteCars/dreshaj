@@ -1,20 +1,22 @@
 # Supabase `cars` -> Instagram poster.
 #
-# Targets 4pm Kosovo time (~14:00-16:00 UTC depending on CEST/CET), but
-# does NOT rely on any single cron tick landing. GitHub's own docs
-# acknowledge scheduled workflows "can be delayed" under load and, in
-# practice, can be dropped outright some days with no run at all —
-# confirmed twice against this exact workflow (2026-08-27 with the
-# original "0 14 * * *", then again on 2026-08-28 with an off-the-hour
-# "5 14 * * *" — neither guarantee actually fired that day).
+# Requirement: the daily batch lands sometime between 12:00 and 18:00
+# Kosovo time — the exact minute doesn't matter. It does NOT rely on any
+# single cron tick landing. GitHub's own docs acknowledge scheduled
+# workflows "can be delayed" under load and, in practice, can be dropped
+# outright some days with no run at all — confirmed twice against this
+# exact workflow (2026-08-27 with the original "0 14 * * *", then again
+# on 2026-08-28 with an off-the-hour "5 14 * * *" — neither actually
+# fired that day).
 #
-# Instead this fires six times across a 14:00-15:59 UTC window (every ~20
-# min) and relies on the poster script's own idempotency guard
+# So this fires 15 times across an 11:00-15:59 UTC window (every ~20 min)
+# and relies on the poster script's own idempotency guard
 # (hasPostedToday() in post-to-instagram.js) to make every tick except
 # the first a safe no-op — it only actually posts once the DB shows
-# nothing posted yet today. As long as at least one of the six ticks
-# lands, the day's batch goes out; losing five out of six would need to
-# happen for this to miss a day entirely.
+# nothing posted yet today. The first tick that lands posts; the rest
+# skip. 11:00-15:59 UTC sits inside the 12:00-18:00 local window in both
+# summer (CEST, UTC+2: 13:05-17:45 local) and winter (CET, UTC+1:
+# 12:05-16:45 local), so no DST handling is needed anywhere.
 #
 # Posts up to IG_POSTS_PER_RUN *unposted* listings (default 5), so a
 # scraper sync dropping thousands of rows never translates into a flood
@@ -54,11 +56,11 @@ on:
         required: false
         default: ""
   schedule:
-    # Six attempts every ~20 min across 14:00-15:59 UTC, offset off the
+    # 15 attempts every ~20 min across 11:00-15:59 UTC, offset off the
     # hour — see the header comment above for why. Only the first tick
     # that actually lands does anything; the rest are idempotent no-ops
     # via hasPostedToday().
-    - cron: "5,25,45 14,15 * * *"
+    - cron: "5,25,45 11,12,13,14,15 * * *"
 
 jobs:
   post:
