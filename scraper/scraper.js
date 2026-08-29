@@ -35,6 +35,7 @@ const { createClient } = require('@supabase/supabase-js');
 const {
   translate,
   translateRegion,
+  fixEncarEnglish,
   reportUnmappedFragments,
 } = require('./translations');
 require('dotenv').config();
@@ -1027,12 +1028,16 @@ function enrichRowWithDetail(row, detail, target, exchangeRate) {
 
   // ---- model / trim: prefer the pre-translated English names ----
   // Encar already maintains English equivalents for most imports, so we
-  // skip our translation pipeline whenever possible.
+  // skip our translation pipeline whenever possible. But Encar's English
+  // names are occasionally wrong transliterations (modelGroupEnglishName
+  // "Cilo" for the Renault Clio), so they still go through
+  // fixEncarEnglish() — without it those bad names land in the DB and on
+  // the site/IG captions verbatim.
   const cat = detail.category || {};
   const englishModel = cleanText(cat.modelGroupEnglishName);
   const koreanModel = cleanText(cat.modelGroupName);
   if (englishModel) {
-    row.model = englishModel;
+    row.model = fixEncarEnglish(englishModel);
   } else if (koreanModel) {
     row.model = translate(koreanModel);
   }
@@ -1040,9 +1045,10 @@ function enrichRowWithDetail(row, detail, target, exchangeRate) {
   const englishGrade = cleanText(cat.gradeEnglishName);
   const englishGradeDetail = cleanText(cat.gradeDetailEnglishName);
   const koreanGrade = cleanText(cat.gradeName);
-  let trim = englishGrade || (koreanGrade ? translate(koreanGrade) : null);
+  let trim = englishGrade ? fixEncarEnglish(englishGrade) : (koreanGrade ? translate(koreanGrade) : null);
   if (englishGradeDetail && englishGradeDetail !== englishGrade) {
-    trim = trim ? `${trim} ${englishGradeDetail}` : englishGradeDetail;
+    const detailPart = fixEncarEnglish(englishGradeDetail);
+    trim = trim ? `${trim} ${detailPart}` : detailPart;
   }
   if (trim) row.trim = trim.replace(/\s+/g, ' ').trim();
 

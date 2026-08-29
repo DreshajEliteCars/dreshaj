@@ -228,7 +228,10 @@ const MODELS = {
   // Renault -------------------------------------------------------------------
   // No Renault section existed at all before this — every Korean-script
   // Renault model name fell through to the raw transliterator instead of
-  // a real translation (e.g. '클리오' -> "Cilo" instead of "Clio").
+  // a real translation. NOTE: this alone did NOT fix the "Cilo" bug on IG
+  // posts — Encar's own modelGroupEnglishName is literally "Cilo", and that
+  // English name bypasses this dictionary entirely. The real fix is
+  // ENCAR_ENGLISH_FIXES below (see fixEncarEnglish()).
   '클리오': 'Clio',
   '아르카나': 'Arkana',
   '콜레오스': 'Koleos',
@@ -499,10 +502,32 @@ function tidy(input) {
   return out;
 }
 
+// Encar's own pre-translated English names are occasionally wrong
+// transliterations rather than the real model name — e.g. its
+// modelGroupEnglishName for the Renault Clio is literally "Cilo". Those
+// strings normally bypass the Korean dictionary entirely (the scraper
+// prefers Encar's English name when present, see scraper.js), so known-bad
+// ones get corrected here by exact word match. Applied both inside
+// translate() and directly on Encar's English names in the scraper.
+const ENCAR_ENGLISH_FIXES = {
+  Cilo: 'Clio',
+};
+
+function fixEncarEnglish(input) {
+  if (!input) return input;
+  // Word-by-word so e.g. a trim like "Cilo RS" is caught too, without
+  // touching substrings of unrelated words.
+  return String(input)
+    .split(' ')
+    .map((word) => ENCAR_ENGLISH_FIXES[word] || word)
+    .join(' ');
+}
+
 /**
  * Translate a model / trim string. Guarantees no Hangul in the output:
  *   1. Apply the loanword dictionary.
  *   2. If anything Korean remains, transliterate via hangul.js.
+ *   3. Correct known-bad Encar English spellings (ENCAR_ENGLISH_FIXES).
  */
 function translate(input) {
   if (!input) return input;
@@ -523,7 +548,7 @@ function translate(input) {
     out = tidy(out);
   }
 
-  return out;
+  return fixEncarEnglish(out);
 }
 
 /** Translate a region/seller-city string (separate dictionary, same flow). */
@@ -559,6 +584,7 @@ function _resetUnmappedFragmentsForTests() {
 module.exports = {
   translate,
   translateRegion,
+  fixEncarEnglish,
   reportUnmappedFragments,
   _resetUnmappedFragmentsForTests,
 };

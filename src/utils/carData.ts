@@ -104,7 +104,7 @@ export const brandModels: Record<string, string[]> = {
     "718","911","928","944","968","Boxster","Carrera GT","Cayenne","Cayman","Macan","Panamera","Taycan",
   ],
   "Renault": [
-    "Alpine","Arkana","Captur","Cilo","Clio","Filante","Grand Koleos","Koleos","Laguna","Master",
+    "Alpine","Arkana","Captur","Clio","Filante","Grand Koleos","Koleos","Laguna","Master",
     "Megane","QM3","QM5","QM6","Scenic","SM3","SM5","SM6","SM7",
     "Talisman","Twizy","XM3","ZOE",
   ],
