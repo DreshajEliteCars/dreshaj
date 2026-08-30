@@ -1,22 +1,28 @@
 # Supabase `cars` -> Instagram poster.
 #
 # Requirement: the daily batch lands sometime between 12:00 and 18:00
-# Kosovo time — the exact minute doesn't matter. It does NOT rely on any
-# single cron tick landing. GitHub's own docs acknowledge scheduled
-# workflows "can be delayed" under load and, in practice, can be dropped
-# outright some days with no run at all — confirmed twice against this
-# exact workflow (2026-08-27 with the original "0 14 * * *", then again
-# on 2026-08-28 with an off-the-hour "5 14 * * *" — neither actually
-# fired that day).
+# Kosovo time — the exact minute doesn't matter.
 #
-# So this fires 15 times across an 11:00-15:59 UTC window (every ~20 min)
-# and relies on the poster script's own idempotency guard
-# (hasPostedToday() in post-to-instagram.js) to make every tick except
-# the first a safe no-op — it only actually posts once the DB shows
-# nothing posted yet today. The first tick that lands posts; the rest
-# skip. 11:00-15:59 UTC sits inside the 12:00-18:00 local window in both
-# summer (CEST, UTC+2: 13:05-17:45 local) and winter (CET, UTC+1:
-# 12:05-16:45 local), so no DST handling is needed anywhere.
+# Two independent automatic triggers, because GitHub's cron has proven
+# unreliable for this specific workflow (zero schedule deliveries
+# 2026-08-27 through 2026-08-30, across three different cron rewrites,
+# while scraper.yml's cron fired every day):
+#
+#   1. workflow_call — scraper.yml chains this after every sync, and the
+#      scraper's schedule demonstrably fires daily. The poster script
+#      itself enforces the 12:00-18:00 Kosovo window (see the posting
+#      window section in post-to-instagram.js): the midnight sync's
+#      chained run lands ~3-8am local and no-ops; the midday sync's
+#      chained run lands mid-window and posts. A run landing shortly
+#      before noon waits for the window instead of skipping.
+#   2. The cron below — 15 ticks across 11:00-15:59 UTC — as a second
+#      path in case the sync fails or finishes after 18:00 local.
+#
+# Every trigger is a safe no-op after the day's batch is out
+# (hasPostedToday() in post-to-instagram.js), so overlapping triggers can
+# never double-post; the concurrency group below serializes them.
+# Manual workflow_dispatch runs bypass the window by default — a human
+# clicking "post now" means now.
 #
 # Posts up to IG_POSTS_PER_RUN *unposted* listings (default 5), so a
 # scraper sync dropping thousands of rows never translates into a flood
@@ -45,6 +51,19 @@
 name: Instagram post
 
 on:
+  workflow_call:
+    # Chained after every scraper sync (see scraper.yml). Secrets are
+    # passed explicitly — no `secrets: inherit` — so this job only ever
+    # sees the four it needs.
+    secrets:
+      SUPABASE_URL:
+        required: true
+      SUPABASE_KEY:
+        required: true
+      IG_ACCESS_TOKEN:
+        required: true
+      IG_BUSINESS_ID:
+        required: true
   workflow_dispatch:
     inputs:
       dry_run:
@@ -55,6 +74,10 @@ on:
         description: "Post one specific car id, ignoring the daily cap. Empty = normal batch run."
         required: false
         default: ""
+      ignore_window:
+        description: "Post immediately instead of only inside the 12:00-18:00 Kosovo window."
+        required: false
+        default: "true"
   schedule:
     # 15 attempts every ~20 min across 11:00-15:59 UTC, offset off the
     # hour — see the header comment above for why. Only the first tick
@@ -66,9 +89,10 @@ jobs:
   post:
     name: Post unposted cars to Instagram
     runs-on: ubuntu-latest
-    # POSTS_PER_RUN posts, each separated by IG_POST_STEP_DELAY_MS (default
-    # 1 min) — plenty of headroom under the default 5-post/~5-minute run.
-    timeout-minutes: 20
+    # The script may wait up to 3h for the 12:00 Kosovo window to open
+    # (chained runs landing 09:00-12:00 local), plus the ~5-minute posting
+    # run itself. Public repo, so held runner minutes cost nothing.
+    timeout-minutes: 200
     concurrency:
       # Never run two posting jobs in parallel — they could both grab the
       # same "unposted" rows before either one's ig_posted_at write lands.
@@ -102,4 +126,7 @@ jobs:
           IG_SITE_URL: ${{ vars.IG_SITE_URL }}
           IG_TARGET_BRANDS: ${{ vars.IG_TARGET_BRANDS }}
           IG_DRY_RUN: ${{ inputs.dry_run }}
+          # Only ever "true" for manual dispatches — schedule and
+          # workflow_call leave it empty, so the window is enforced.
+          IG_IGNORE_WINDOW: ${{ inputs.ignore_window }}
         run: node post-to-instagram.js ${{ inputs.car_id }}

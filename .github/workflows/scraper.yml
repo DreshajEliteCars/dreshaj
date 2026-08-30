@@ -2,6 +2,9 @@
 #
 # Runs on a cron + manual dispatch. Logs into Supabase via the service-
 # role key (kept in Actions secrets) and refreshes the `cars` table.
+# After every successful sync it also calls instagram-post.yml — see the
+# instagram-post job at the bottom for why that chain is the primary
+# trigger for daily Instagram posts.
 #
 # To enable, configure these repository secrets:
 #
@@ -96,3 +99,20 @@ jobs:
           SCRAPER_SKIP_FRESH_HOURS: ${{ vars.SCRAPER_SKIP_FRESH_HOURS }}
           SCRAPER_MAX_PRICE_EUR: ${{ vars.SCRAPER_MAX_PRICE_EUR }}
         run: node scraper.js
+
+  # Chain the Instagram poster onto every successful sync. This is the
+  # PRIMARY automatic trigger for daily posts: this workflow's cron
+  # demonstrably fires every day, while instagram-post.yml's own cron went
+  # completely undelivered 2026-08-27..30. The poster script enforces the
+  # 12:00-18:00 Kosovo posting window itself, so the midnight sync's
+  # chained run is a no-op and the midday sync's run posts — and its daily
+  # idempotency guard makes any overlap with the cron fallback safe.
+  instagram-post:
+    name: Post synced cars to Instagram
+    needs: sync
+    uses: ./.github/workflows/instagram-post.yml
+    secrets:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+      IG_BUSINESS_ID: ${{ secrets.IG_BUSINESS_ID }}

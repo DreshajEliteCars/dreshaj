@@ -88,6 +88,60 @@ const CAROUSEL_STEP_DELAY_MS = 800;
 // natural activity and stays well clear of IG's own rate limits.
 const POST_STEP_DELAY_MS = parsePositiveInt(process.env.IG_POST_STEP_DELAY_MS) || 60_000;
 
+// ---- posting window (Kosovo local time) -----------------------------------
+// Batch posts must land between 12:00 and 18:00 Kosovo time. The window is
+// enforced HERE, in the script, instead of in cron math: GitHub's scheduler
+// has proven unreliable for this workflow (zero cron deliveries Aug 27-30
+// while scraper.yml's cron fired daily), so the poster is also chained onto
+// every scraper sync (see scraper.yml). Those chained runs can land at any
+// hour — the midnight sync finishes ~3-8am local — and this window check is
+// what turns out-of-window triggers into safe no-ops.
+//
+// Kosovo uses CET/CEST like Belgrade; Intl handles the DST switch, so no
+// UTC offset math anywhere.
+const POSTING_TZ = 'Europe/Belgrade';
+const WINDOW_START_MINUTES = 12 * 60; // 12:00 local
+const WINDOW_END_MINUTES = 18 * 60;   // up to 17:59 local
+// A trigger landing a bit before noon (e.g. a delayed morning sync
+// finishing ~11:30 local) waits for the window instead of skipping. Waits
+// longer than this would burn hours of runner time for nothing — the next
+// trigger of the day handles it instead.
+const MAX_WAIT_BEFORE_WINDOW_MINUTES = 3 * 60; // start waiting from 09:00 local
+// Manual workflow_dispatch runs set this so a human clicking "post now"
+// isn't told to come back at noon. Scheduled/chained runs leave it unset.
+const IG_IGNORE_WINDOW = String(process.env.IG_IGNORE_WINDOW).toLowerCase() === 'true';
+
+/** Minutes since local midnight in Kosovo, DST-correct. */
+function kosovoMinutesNow(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: POSTING_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const hour = Number(parts.find((p) => p.type === 'hour').value);
+  const minute = Number(parts.find((p) => p.type === 'minute').value);
+  return hour * 60 + minute;
+}
+
+/**
+ * Decide what a batch run should do at this local time:
+ *   { action: 'post' }                     — inside 12:00-17:59
+ *   { action: 'wait', waitMs }             — 09:00-11:59, sleep until 12:00
+ *   { action: 'skip' }                     — anything else
+ */
+function decidePostingWindow(minutesNow) {
+  if (minutesNow >= WINDOW_START_MINUTES && minutesNow < WINDOW_END_MINUTES) {
+    return { action: 'post' };
+  }
+  const untilOpen = WINDOW_START_MINUTES - minutesNow;
+  if (untilOpen > 0 && untilOpen <= MAX_WAIT_BEFORE_WINDOW_MINUTES) {
+    // +30s buffer so we never wake up at 11:59:59 and skip.
+    return { action: 'wait', waitMs: untilOpen * 60_000 + 30_000 };
+  }
+  return { action: 'skip' };
+}
+
 function parsePositiveInt(value) {
   const n = Number.parseInt(value, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -375,11 +429,38 @@ async function main() {
     return;
   }
 
+  // Posting window: batch runs only publish between 12:00 and 18:00 Kosovo
+  // time, no matter what triggered them (cron tick, chained scraper sync,
+  // anything). Runs landing shortly before noon wait for the window; runs
+  // landing anywhere else exit as no-ops and leave the day to a later
+  // trigger. Manual dispatches set IG_IGNORE_WINDOW to post immediately.
+  if (!IG_IGNORE_WINDOW && !IG_DRY_RUN) {
+    const minutesNow = kosovoMinutesNow();
+    const decision = decidePostingWindow(minutesNow);
+    const hhmm = `${String(Math.floor(minutesNow / 60)).padStart(2, '0')}:${String(minutesNow % 60).padStart(2, '0')}`;
+
+    if (decision.action === 'skip') {
+      console.log(`Outside posting window (${hhmm} Kosovo time, window 12:00-18:00) — skipping this run.`);
+      return;
+    }
+    if (decision.action === 'wait') {
+      // Don't hold a runner for hours if today's batch already went out.
+      if (await hasPostedToday(supabase)) {
+        console.log('Already posted today — skipping this run.');
+        return;
+      }
+      console.log(
+        `Window opens at 12:00 Kosovo time (now ${hhmm}) — waiting ${Math.round(decision.waitMs / 60_000)} min before posting.`
+      );
+      await sleep(decision.waitMs);
+    }
+  }
+
   // Batch mode is idempotent per UTC day: if today's batch already went
-  // out (via an earlier tick of the same schedule, or a manual run),
-  // skip rather than post a second batch. This is what makes it safe for
-  // the GitHub Actions schedule to fire more than once a day as a safety
-  // net against a dropped/delayed cron tick — see hasPostedToday().
+  // out (via an earlier trigger — cron tick, chained sync, manual run),
+  // skip rather than post a second batch. This is what makes it safe to
+  // have several triggers a day instead of depending on any single one
+  // firing — see hasPostedToday().
   if (!IG_DRY_RUN && (await hasPostedToday(supabase))) {
     console.log('Already posted today — skipping this run.');
     return;
@@ -419,8 +500,13 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  const apiError = err.response?.data?.error;
-  console.error('Failed:', apiError ? JSON.stringify(apiError, null, 2) : err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    const apiError = err.response?.data?.error;
+    console.error('Failed:', apiError ? JSON.stringify(apiError, null, 2) : err.message);
+    process.exit(1);
+  });
+}
+
+// Exported for tests only — running this file directly is what posts.
+module.exports = { decidePostingWindow, kosovoMinutesNow };
