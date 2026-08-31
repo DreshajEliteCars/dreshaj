@@ -1,30 +1,13 @@
 # Supabase `cars` -> Instagram poster.
 #
-# Requirement: the daily batch posts at 18:00 Kosovo time.
-#
-# Two independent automatic triggers, because GitHub's cron has proven
-# unreliable for this specific workflow (zero schedule deliveries
-# 2026-08-27 through 2026-08-30, across three different cron rewrites,
-# while scraper.yml's cron fired every day):
-#
-#   1. workflow_call — scraper.yml chains this after every successful sync
-#      and passes ignore_window=true. The first successful scraper sync of
-#      the UTC day therefore posts immediately; later calls safely no-op.
-#   2. The cron below — 9 ticks across 15:00-17:59 UTC — as a second
-#      path in case the sync fails or finishes after 21:00 local.
-#
-# Every trigger is a safe no-op after the day's batch is out
-# (hasPostedToday() in post-to-instagram.js), so overlapping triggers can
-# never double-post; the concurrency group below serializes them.
-# Manual workflow_dispatch runs bypass the window by default — a human
-# clicking "post now" means now — and can also bypass the once-per-day
-# guard via force_post to deliberately post an extra batch.
+# The only automatic trigger is workflow_call from scraper.yml after a
+# successful Encar sync. The first successful sync of each UTC day posts
+# immediately; later syncs are safe no-ops via hasPostedToday(). Manual
+# workflow_dispatch remains available for diagnostics.
 #
 # Posts up to IG_POSTS_PER_RUN *unposted* listings (default 5), so a
 # scraper sync dropping thousands of rows never translates into a flood
-# of IG posts. Independent of the scraper's own schedule (scraper.yml) —
-# whatever's unposted in the DB at trigger time gets posted, from
-# whichever sync landed most recently.
+# of IG posts. Whatever is unposted at sync completion gets considered.
 #
 # To enable, configure these repository secrets:
 #
@@ -51,12 +34,6 @@ on:
     # Chained after every scraper sync (see scraper.yml). Secrets are
     # passed explicitly — no `secrets: inherit` — so this job only ever
     # sees the four it needs.
-    inputs:
-      ignore_window:
-        description: "Post immediately after a successful scraper sync."
-        required: false
-        type: boolean
-        default: false
     secrets:
       SUPABASE_URL:
         required: true
@@ -76,34 +53,12 @@ on:
         description: "Post one specific car id, ignoring the daily cap. Empty = normal batch run."
         required: false
         default: ""
-      ignore_window:
-        description: "Post immediately instead of waiting for 18:00 Kosovo time."
-        required: false
-        default: "true"
-      force_post:
-        description: "Post a batch even if one already went out today (bypasses the once-per-day guard)."
-        required: false
-        default: "false"
-  schedule:
-    # 9 fallback attempts every ~20 min across 15:00-17:59 UTC — that's
-    # 17:05-19:45 Kosovo time in summer (CEST) and 16:05-18:45 in winter
-    # (CET), so ticks before 18:00 local wait for it and later ones post
-    # immediately. Only the first trigger of the day that lands actually
-    # posts; the rest are idempotent no-ops via hasPostedToday().
-    - cron: "5,25,45 15,16,17 * * *"
-    # Temporary automatic verification tick for 2026-08-31 at 19:03
-    # Kosovo time. Remove after observing the scheduled run.
-    - cron: "3 17 31 8 *"
 
 jobs:
   post:
     name: Post unposted cars to Instagram
     runs-on: ubuntu-latest
-    # The script may wait up to 5h for 18:00 Kosovo time (chained runs
-    # landing 13:00-18:00 local), plus the ~10-minute posting run itself.
-    # Public repo, so held runner minutes cost nothing. GitHub's hard cap
-    # per job is 6h (360) — stay under it.
-    timeout-minutes: 350
+    timeout-minutes: 20
     concurrency:
       # Never run two posting jobs in parallel — they could both grab the
       # same "unposted" rows before either one's ig_posted_at write lands.
@@ -137,9 +92,4 @@ jobs:
           IG_SITE_URL: ${{ vars.IG_SITE_URL }}
           IG_TARGET_BRANDS: ${{ vars.IG_TARGET_BRANDS }}
           IG_DRY_RUN: ${{ inputs.dry_run }}
-          # Manual dispatches and scraper workflow calls may bypass the
-          # clock window. The once-per-day guard remains enforced unless
-          # a manual dispatch explicitly sets force_post.
-          IG_IGNORE_WINDOW: ${{ inputs.ignore_window }}
-          IG_FORCE_POST: ${{ inputs.force_post }}
         run: node post-to-instagram.js ${{ inputs.car_id }}

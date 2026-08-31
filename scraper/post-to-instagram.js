@@ -1,9 +1,7 @@
 /**
  * Supabase `cars` rows → Instagram posts.
  *
- * The scraper (scraper.js) can drop thousands of rows into `cars` in a
- * single sync. This job runs separately (its own, much less frequent
- * schedule — see .github/workflows/instagram-post.yml) and only ever
+ * The scraper workflow invokes this after a successful sync. It only ever
  * posts a small, capped batch of *unposted* listings per run, tracked via
  * the `ig_posted_at` column (supabase/migrations/0007_add_ig_posted_at.sql).
  * A car is only ever posted once — once `ig_posted_at` is set it's
@@ -11,9 +9,7 @@
  *
  * Batch mode is also idempotent per UTC day (hasPostedToday()): if
  * anything already posted today, later runs skip instead of posting a
- * second batch. This is what lets the GitHub Actions schedule fire
- * several times across a window as a safety net against a dropped or
- * delayed cron tick, rather than depending on exactly one tick landing.
+ * second batch. This makes both daily scraper syncs safe automatic triggers.
  *
  * Single photo  -> one `/media` call, image_url + caption, straight to publish.
  * Multiple photos -> carousel: each image becomes a child container
@@ -87,67 +83,6 @@ const CAROUSEL_STEP_DELAY_MS = 800;
 // few minutes instead of firing them back-to-back, which reads as more
 // natural activity and stays well clear of IG's own rate limits.
 const POST_STEP_DELAY_MS = parsePositiveInt(process.env.IG_POST_STEP_DELAY_MS) || 60_000;
-
-// ---- posting window (Kosovo local time) -----------------------------------
-// Batch posts target 18:00 Kosovo time daily. The window is enforced HERE,
-// in the script, instead of in cron math: GitHub's scheduler has proven
-// unreliable for this workflow (zero cron deliveries Aug 27-30 while
-// scraper.yml's cron fired daily), so the poster is also chained onto
-// every scraper sync (see scraper.yml). Those chained runs land hours
-// before 18:00 — the midday sync typically finishes ~14:00-15:30 local —
-// so a run inside the wait range below sleeps until 18:00 and then posts.
-// Triggers landing 18:00-20:59 post immediately (better late than a
-// skipped day); anything else no-ops and leaves the day to a later
-// trigger.
-//
-// Kosovo uses CET/CEST like Belgrade; Intl handles the DST switch, so no
-// UTC offset math anywhere.
-const POSTING_TZ = 'Europe/Belgrade';
-const WINDOW_START_MINUTES = 18 * 60; // 18:00 local — the daily target
-const WINDOW_END_MINUTES = 21 * 60;   // late tolerance: post up to 20:59
-// How early a trigger may land and still wait for 18:00 instead of
-// skipping. 5h covers the midday scraper sync in winter too (finishes
-// ~13:45 local on CET days). GitHub caps a job at 6h, so this plus the
-// ~10-minute posting run stays safely under the limit.
-const MAX_WAIT_BEFORE_WINDOW_MINUTES = 5 * 60; // start waiting from 13:00 local
-// Manual workflow_dispatch runs and scraper-chained workflow calls set this
-// to post immediately. Direct schedule events leave it unset.
-const IG_IGNORE_WINDOW = String(process.env.IG_IGNORE_WINDOW).toLowerCase() === 'true';
-// Bypasses the once-per-day guard (manual dispatch only) — for testing or
-// deliberately posting a second batch the same day. Scheduled/chained runs
-// never set this.
-const IG_FORCE_POST = String(process.env.IG_FORCE_POST).toLowerCase() === 'true';
-
-/** Minutes since local midnight in Kosovo, DST-correct. */
-function kosovoMinutesNow(now = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: POSTING_TZ,
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(now);
-  const hour = Number(parts.find((p) => p.type === 'hour').value);
-  const minute = Number(parts.find((p) => p.type === 'minute').value);
-  return hour * 60 + minute;
-}
-
-/**
- * Decide what a batch run should do at this local time:
- *   { action: 'post' }                     — inside 18:00-20:59
- *   { action: 'wait', waitMs }             — 13:00-17:59, sleep until 18:00
- *   { action: 'skip' }                     — anything else
- */
-function decidePostingWindow(minutesNow) {
-  if (minutesNow >= WINDOW_START_MINUTES && minutesNow < WINDOW_END_MINUTES) {
-    return { action: 'post' };
-  }
-  const untilOpen = WINDOW_START_MINUTES - minutesNow;
-  if (untilOpen > 0 && untilOpen <= MAX_WAIT_BEFORE_WINDOW_MINUTES) {
-    // +30s buffer so we never wake up at 17:59:59 and skip.
-    return { action: 'wait', waitMs: untilOpen * 60_000 + 30_000 };
-  }
-  return { action: 'skip' };
-}
 
 function parsePositiveInt(value) {
   const n = Number.parseInt(value, 10);
@@ -262,12 +197,8 @@ async function fetchShipPriceEur(supabase) {
 
 /**
  * True if any car was already marked posted today (UTC calendar day).
- * Lets the GitHub Actions schedule fire several times across a window
- * instead of depending on one specific cron tick landing — GitHub's own
- * docs acknowledge scheduled workflows "may not run" some days under
- * load, with no guarantee. Checking more often only helps if a second
- * check within the same day is a safe no-op instead of a second batch
- * of posts, which is what this guards.
+ * Makes both daily scraper syncs safe triggers: whichever successful sync
+ * arrives first posts, and later syncs skip instead of posting twice.
  */
 async function hasPostedToday(supabase) {
   const startOfDayUtc = new Date();
@@ -280,9 +211,8 @@ async function hasPostedToday(supabase) {
 
   if (error) {
     // Fail closed: if we can't confirm whether today's batch went out,
-    // skip this run rather than risk posting a duplicate batch. With 15
-    // scheduled ticks a day, a later tick will retry once the DB is
-    // reachable again.
+    // skip this run rather than risk posting a duplicate batch. The next
+    // successful scraper sync can retry once the DB is reachable again.
     console.error(`Warning: couldn't check today's post count (${error.message}) — skipping this run to avoid a possible duplicate batch.`);
     return true;
   }
@@ -436,41 +366,10 @@ async function main() {
     return;
   }
 
-  // Posting window: batch runs publish at 18:00 Kosovo time, no matter
-  // what triggered them (cron tick, chained scraper sync, anything). Runs
-  // landing up to 5h early sleep until 18:00; runs landing 18:00-20:59
-  // post immediately; anything else exits as a no-op and leaves the day
-  // to a later trigger. Manual dispatches and scraper-chained calls set
-  // IG_IGNORE_WINDOW to post right away instead.
-  if (!IG_IGNORE_WINDOW && !IG_DRY_RUN) {
-    const minutesNow = kosovoMinutesNow();
-    const decision = decidePostingWindow(minutesNow);
-    const hhmm = `${String(Math.floor(minutesNow / 60)).padStart(2, '0')}:${String(minutesNow % 60).padStart(2, '0')}`;
-
-    if (decision.action === 'skip') {
-      console.log(`Outside posting window (${hhmm} Kosovo time, target 18:00) — skipping this run.`);
-      return;
-    }
-    if (decision.action === 'wait') {
-      // Don't hold a runner for hours if today's batch already went out.
-      if (!IG_FORCE_POST && (await hasPostedToday(supabase))) {
-        console.log('Already posted today — skipping this run.');
-        return;
-      }
-      console.log(
-        `Posting at 18:00 Kosovo time (now ${hhmm}) — waiting ${Math.round(decision.waitMs / 60_000)} min.`
-      );
-      await sleep(decision.waitMs);
-    }
-  }
-
   // Batch mode is idempotent per UTC day: if today's batch already went
-  // out (via an earlier trigger — cron tick, chained sync, manual run),
-  // skip rather than post a second batch. This is what makes it safe to
-  // have several triggers a day instead of depending on any single one
-  // firing — see hasPostedToday(). IG_FORCE_POST (manual only) bypasses
-  // it to deliberately post an extra batch.
-  if (!IG_DRY_RUN && !IG_FORCE_POST && (await hasPostedToday(supabase))) {
+  // out via an earlier scraper sync or manual run, skip rather than post a
+  // second batch. See hasPostedToday().
+  if (!IG_DRY_RUN && (await hasPostedToday(supabase))) {
     console.log('Already posted today — skipping this run.');
     return;
   }
@@ -516,6 +415,3 @@ if (require.main === module) {
     process.exit(1);
   });
 }
-
-// Exported for tests only — running this file directly is what posts.
-module.exports = { decidePostingWindow, kosovoMinutesNow };
