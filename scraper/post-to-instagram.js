@@ -110,8 +110,8 @@ const WINDOW_END_MINUTES = 21 * 60;   // late tolerance: post up to 20:59
 // ~13:45 local on CET days). GitHub caps a job at 6h, so this plus the
 // ~10-minute posting run stays safely under the limit.
 const MAX_WAIT_BEFORE_WINDOW_MINUTES = 5 * 60; // start waiting from 13:00 local
-// Manual workflow_dispatch runs set this so a human clicking "post now"
-// isn't told to come back at 18:00. Scheduled/chained runs leave it unset.
+// Manual workflow_dispatch runs and scraper-chained workflow calls set this
+// to post immediately. Direct schedule events leave it unset.
 const IG_IGNORE_WINDOW = String(process.env.IG_IGNORE_WINDOW).toLowerCase() === 'true';
 // Bypasses the once-per-day guard (manual dispatch only) — for testing or
 // deliberately posting a second batch the same day. Scheduled/chained runs
@@ -440,8 +440,8 @@ async function main() {
   // what triggered them (cron tick, chained scraper sync, anything). Runs
   // landing up to 5h early sleep until 18:00; runs landing 18:00-20:59
   // post immediately; anything else exits as a no-op and leaves the day
-  // to a later trigger. Manual dispatches set IG_IGNORE_WINDOW to post
-  // right away instead.
+  // to a later trigger. Manual dispatches and scraper-chained calls set
+  // IG_IGNORE_WINDOW to post right away instead.
   if (!IG_IGNORE_WINDOW && !IG_DRY_RUN) {
     const minutesNow = kosovoMinutesNow();
     const decision = decidePostingWindow(minutesNow);

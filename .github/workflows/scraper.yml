@@ -101,16 +101,16 @@ jobs:
         run: node scraper.js
 
   # Chain the Instagram poster onto every successful sync. This is the
-  # PRIMARY automatic trigger for daily posts: this workflow's cron
-  # demonstrably fires every day, while instagram-post.yml's own cron went
-  # completely undelivered 2026-08-27..30. The poster script targets 18:00
-  # Kosovo time itself: the midnight sync's chained run is a no-op, the
-  # midday sync's run waits until 18:00 and posts — and its daily
-  # idempotency guard makes any overlap with the cron fallback safe.
+  # PRIMARY automatic trigger for daily posts: this workflow's cron has
+  # proved more reliable than instagram-post.yml's own schedule. A chained
+  # call posts immediately after the first successful sync of the UTC day;
+  # the daily idempotency guard makes later syncs and cron fallbacks no-ops.
   instagram-post:
     name: Post synced cars to Instagram
     needs: sync
     uses: ./.github/workflows/instagram-post.yml
+    with:
+      ignore_window: true
     secrets:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
