@@ -25,6 +25,13 @@
 #   SCRAPER_DETAIL_CONCURRENCY       detail-endpoint concurrency
 #   SCRAPER_SKIP_FRESH_HOURS         default 6
 #   SCRAPER_MAX_PRICE_EUR            default 50000
+#   SCRAPER_RECONCILE_DELETE         "true" to actually delete sold/removed
+#                                    listings for BMW/Benz/Audi/Renault/VW
+#                                    (the modelGroups makes, which never
+#                                    qualify for the normal per-run deletion
+#                                    safeguard). Unset/anything else = dry
+#                                    run — reports counts, deletes nothing.
+#                                    See reconcileGoneListings() in scraper.js.
 
 name: Scraper sync
 
@@ -98,6 +105,7 @@ jobs:
           SCRAPER_DETAIL_CONCURRENCY: ${{ vars.SCRAPER_DETAIL_CONCURRENCY }}
           SCRAPER_SKIP_FRESH_HOURS: ${{ vars.SCRAPER_SKIP_FRESH_HOURS }}
           SCRAPER_MAX_PRICE_EUR: ${{ vars.SCRAPER_MAX_PRICE_EUR }}
+          SCRAPER_RECONCILE_DELETE: ${{ vars.SCRAPER_RECONCILE_DELETE }}
         run: node scraper.js
 
   # Chain the Instagram poster onto every successful sync. This is the

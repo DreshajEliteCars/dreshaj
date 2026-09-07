@@ -1928,6 +1928,133 @@ async function fetchExistingCarIdsForMake(canonicalName) {
   return ids;
 }
 
+// -----------------------------------------------------------------------------
+// Reconciliation: makes with `modelGroups` never qualify for the normal
+// deletionSafe path above (we only ever fetch a capped subset of their
+// inventory), so listings that get sold on Encar accumulate in our DB
+// forever — verified live on 2026-09-07: 33-45% of BMW/Benz/Audi/
+// Renault/VW rows hadn't been touched in 30+ days.
+//
+// This is a separate, cheap, list-endpoint-only pass (no per-item detail
+// enrichment) that fetches the make's ENTIRE current Encar inventory —
+// not just the priority modelGroups — so it's safe to conclude "not in
+// this set = actually gone" the same way the capped/uncapped distinction
+// already does for other makes.
+// -----------------------------------------------------------------------------
+
+/**
+ * Every source_id Encar currently reports for a manufacturer, across its
+ * full inventory (no ModelGroup filter, no detail-endpoint enrichment —
+ * list pages only, so this stays fast even for 10k+-listing makes).
+ */
+async function fetchAllCurrentSourceIds(target) {
+  const ids = new Set();
+  const initialCount = await fetchCount(target);
+  if (initialCount === 0) return ids;
+
+  const buckets =
+    initialCount <= SLICING_THRESHOLD ? [null] : await enumerateYearBuckets(target);
+
+  // NOTE: despite ENCAR_MAX_PAGE_SIZE (1000) being labeled Encar's hard
+  // cap elsewhere in this file, live testing on 2026-09-07 showed sr page
+  // sizes of 999 and 1000 both silently return Count=0 / zero results —
+  // only PAGE_SIZE (500) actually works. Using 500 here too rather than
+  // trusting that constant.
+  for (const bucket of buckets) {
+    const query = createManufacturerQuery(target.queryManufacturer, bucket, null);
+    let offset = 0;
+    // Hard cap on pages per bucket as a last-resort safety net — see the
+    // repeated-page guard below for the real protection. This just bounds
+    // worst-case time if some future edge case slips past that guard too.
+    const maxPages = Math.ceil((initialCount + PAGE_SIZE) / PAGE_SIZE) + 20;
+    for (let page = 0; page < maxPages; page += 1) {
+      const response = await getWithRetry(
+        ENCAR_SEARCH_URL,
+        { params: { count: 'true', q: query, sr: createSearchRange(offset, PAGE_SIZE) } },
+        `${target.canonicalName} reconcile-IDs @${offset}`
+      );
+      const results = response.data?.SearchResults;
+      if (!Array.isArray(results) || !results.length) break;
+
+      const sizeBefore = ids.size;
+      for (const item of results) {
+        const id = cleanText(item.Id);
+        if (id) ids.add(id);
+      }
+      // Encar occasionally re-serves the same page instead of advancing
+      // (seen live against this exact endpoint — see _walkBucket's
+      // identical guard). Without this, a full-size repeated page would
+      // never trip the "results.length < PAGE_SIZE" exit below and the
+      // loop would run for `maxPages` iterations doing nothing useful.
+      if (ids.size === sizeBefore) {
+        console.warn(`[${target.canonicalName}] Reconcile: Encar repeated an already-seen page at offset ${offset} — stopping this bucket early.`);
+        break;
+      }
+
+      offset += results.length;
+      if (results.length < PAGE_SIZE) break;
+      await sleep(1000); // polite pause between list pages
+    }
+  }
+  return ids;
+}
+
+/**
+ * Deletes DB rows for `target.canonicalName` whose source_id no longer
+ * appears anywhere in Encar's current inventory for that make — i.e.
+ * genuinely sold/removed listings, confirmed against the FULL live set
+ * rather than a single capped fetch. Isolated in its own try/catch so a
+ * failure here (WAF block, network blip, Supabase hiccup) never fails
+ * the calling sync; it just skips reconciliation this run and tries
+ * again next time.
+ *
+ * Defaults to dry-run (report only, no deletes) unless
+ * SCRAPER_RECONCILE_DELETE=true is set, so this can be rolled out
+ * observed-first.
+ */
+async function reconcileGoneListings(target, { dryRun } = {}) {
+  const isDryRun =
+    dryRun ?? process.env.SCRAPER_RECONCILE_DELETE !== 'true';
+  const label = target.canonicalName;
+
+  try {
+    const currentIds = await fetchAllCurrentSourceIds(target);
+    if (currentIds.size === 0) {
+      console.warn(`[${label}] Reconcile: 0 current IDs from Encar — treating as a fetch failure, skipping.`);
+      return { checked: 0, deleted: 0, dryRun: isDryRun };
+    }
+
+    const existing = await fetchExistingCarIdsForMake(label);
+    const goneRows = existing.filter((row) => !currentIds.has(String(row.source_id)));
+
+    console.log(
+      `[${label}] Reconcile: ${currentIds.size.toLocaleString()} live on Encar, ` +
+      `${existing.length.toLocaleString()} in our DB, ${goneRows.length.toLocaleString()} no longer found.`
+    );
+
+    if (isDryRun || goneRows.length === 0) {
+      if (isDryRun && goneRows.length) {
+        console.log(`[${label}] Reconcile (dry-run): would delete ${goneRows.length} rows. Set SCRAPER_RECONCILE_DELETE=true to actually delete.`);
+      }
+      return { checked: goneRows.length, deleted: 0, dryRun: isDryRun };
+    }
+
+    let deleted = 0;
+    for (const chunk of chunkArray(goneRows.map((r) => r.id), DELETE_CHUNK_SIZE)) {
+      await executeSupabase(
+        getSupabase().from('cars').delete().in('id', chunk),
+        'Reconcile delete gone cars'
+      );
+      deleted += chunk.length;
+    }
+    console.log(`[${label}] Reconcile: deleted ${deleted} gone listings.`);
+    return { checked: goneRows.length, deleted, dryRun: isDryRun };
+  } catch (error) {
+    console.warn(`[${label}] Reconcile skipped (non-fatal): ${error.message}`);
+    return { checked: 0, deleted: 0, dryRun: isDryRun, error: error.message };
+  }
+}
+
 async function deleteMissingListings(makeScopes) {
   let deleted = 0;
   let makesProcessed = 0;
@@ -2195,6 +2322,22 @@ async function syncCars(options = {}) {
       const del = await deleteMissingListings(summary.makes);
       summary.totals.deletedRows = del.deleted;
       summary.deletion = del;
+
+      // Reconciliation pass: modelGroups makes (BMW, Benz, Audi, Renault,
+      // VW) never qualify for deletionSafe above, so sold/removed
+      // listings otherwise accumulate forever. Entirely isolated from
+      // the main sync — a failure here is logged and swallowed, never
+      // thrown, so it can never turn a successful sync into a failed
+      // one (and never blocks the chained Instagram post job).
+      const reconcileTargets = targets.filter((t) => t.modelGroups?.length);
+      if (reconcileTargets.length) {
+        summary.reconciliation = [];
+        for (const target of reconcileTargets) {
+          const result = await reconcileGoneListings(target);
+          summary.reconciliation.push({ make: target.canonicalName, ...result });
+          summary.totals.deletedRows += result.deleted;
+        }
+      }
     } else {
       summary.deletion = {
         skipped: true,
@@ -2261,4 +2404,7 @@ module.exports = {
   normalizeFuelType,
   extractRegistration,
   buildImageUrls,
+  fetchAllCurrentSourceIds,
+  reconcileGoneListings,
+  bootstrapSession,
 };
