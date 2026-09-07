@@ -25,17 +25,8 @@ export const brandModels: Record<string, string[]> = {
     "S8","S e-tron GT","SQ5","SQ6 e-tron","SQ7","SQ8","SQ8 e-tron",
     "TT","TTRS","TTS","V8",
   ],
-  "Aston Martin": [
-    "DB11","DB12","DB7","DB9","DBS","DBX","Rapide","Vanquish","Vantage","Virage",
-  ],
   "BYD": [
     "Atto 3","Dolphin","e6","Seal","Sealion 7",
-  ],
-  "Ferrari": [
-    "296","308","328","348","360","456","458","488","512 TR","550","575M",
-    "599","612","812","Amalfi","California","Enzo Ferrari","F12 Berlinetta",
-    "F355","F40","F430","F50","F8","FF","GTC4 Lusso","LaFerrari",
-    "LC","Portofino","Purosangue","Roma","SF90","12Cilindri",
   ],
   "Fiat": [
     "124","500","500L","500X","Barchetta","Coupe","Croma","Ducato","Freemont",
@@ -62,11 +53,6 @@ export const brandModels: Record<string, string[]> = {
     "Terracan","Tiburon","Trajet","Tucson","Tuscani","Veloster","Venue",
     "Veracruz","Verna","Xcient"
   ],
-  "Jaguar": [
-    "Daimler","E-PACE","E-TYPE","F-PACE","F-TYPE","I-PACE","S-TYPE",
-    "Sovereign","XE","XF","XJ","XJ-6","XJ-8","XJ-C","XJR","XJS","XK",
-    "XK8","XKR","X-TYPE",
-  ],
   "Jeep": [
     "Avenger","Cherokee","CJ","Commander","Compass","Gladiator",
     "Patriot","Renegade","Wrangler",
@@ -82,11 +68,6 @@ export const brandModels: Record<string, string[]> = {
   ],
   "Lexus": [
     "CT200h","ES","GS","GX","IS","LC","LM","LS","LX","NX","RC","RX","RZ","SC","UX",
-  ],
-  "Mazda": [
-    "AZ-1","CX-3","CX-5","CX-7","CX-9","Demio","Flare Crossover","Mazda 3",
-    "Mazda 5","Mazda 6","Millenia","MPV","MX-3","MX-5 Miata","MX-6",
-    "Protégé","RX-7","RX-8","Viante","Yunos","626",
   ],
   "Nissan": [
     "180SX","200SX","240SX","280ZX","300ZX","350Z","370Z","Altima",
@@ -111,13 +92,6 @@ export const brandModels: Record<string, string[]> = {
   "Smart": [
     "Forfour","Fortwo","Roadster",
   ],
-  "Suzuki": [
-    "Alto","Alto Lapin","Cappuccino","Grand Vitara","Hustler",
-    "Ignis","Jimny","Sidekick","Spacia","Swift","Twin","Wagon R","X-90",
-  ],
-  "Tesla": [
-    "Cybertruck","Model 3","Model S","Model X","Model Y",
-  ],
   "Toyota": [
     "4Runner","86","Alphard","Altezza","Aristo","Avalon","AYGO","bB","C-HR","Cami",
     "Camry","Carina","Celica","Celsior","Chaser","Corona","Corolla","Corsa",
@@ -127,11 +101,6 @@ export const brandModels: Record<string, string[]> = {
     "Previa","Prius","Ractis","Raum","RAV4","Roomy","Sequoia","Sera","Sienna",
     "Sienta","Soarer","Solara","Supra","Tacoma","Tundra","Vellfire","Venza",
     "Verso","Vista","Vitz","WiLL","Wish","Xtra Cab","Yaris",
-  ],
-  "Volvo": [
-    "740","760","850","940","960","C30","C40","C70","EX30","EX40","S40",
-    "S60","S70","S80","S90","V40","V50","V60","V70","V90","XC40","XC60",
-    "XC70","XC90",
   ],
 };
 
