@@ -104,6 +104,18 @@ function YesNo({ value, t }: { value: boolean | null; t: (k: string) => string }
   );
 }
 
+// The API route already retries once server-side (see
+// fetchEncarInspection in the route handler), but Encar's WAF can stay
+// unfriendly toward Vercel's calling IP for longer than that single
+// 300ms gap covers — confirmed live: a listing that 503'd repeatedly
+// came back clean on a plain browser refresh (a brand new request a few
+// seconds later). Rather than making the visitor do that refresh
+// manually, retry automatically a few times client-side before
+// surfacing the error state. A confirmed 404 ("no inspection for this
+// car") is never retried — that's a real answer, not a hiccup.
+const CLIENT_RETRY_ATTEMPTS = 3; // 1 initial try + 2 automatic retries
+const CLIENT_RETRY_DELAY_MS = 2500;
+
 export default function InspectionSection({ carId }: { carId: string }) {
   const { t } = useLanguage();
   const [state, setState] = useState<
@@ -115,34 +127,51 @@ export default function InspectionSection({ carId }: { carId: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     setState({ kind: "loading" });
 
-    fetch(`/api/cars/${encodeURIComponent(carId)}/inspection`)
-      .then(async (res) => {
-        if (cancelled) return;
-        if (res.status === 404) {
-          setState({ kind: "missing" });
-          return;
-        }
-        if (!res.ok) {
-          setState({ kind: "error", message: `HTTP ${res.status}` });
-          return;
-        }
-        const body = (await res.json()) as { inspection: InspectionReport | null };
-        if (cancelled) return;
-        if (!body.inspection) setState({ kind: "missing" });
-        else setState({ kind: "ready", report: body.inspection });
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setState({
-          kind: "error",
-          message: err instanceof Error ? err.message : "Failed",
+    function load(attempt: number) {
+      fetch(`/api/cars/${encodeURIComponent(carId)}/inspection`)
+        .then(async (res) => {
+          if (cancelled) return;
+          if (res.status === 404) {
+            // A confirmed answer, not a hiccup — no retry.
+            setState({ kind: "missing" });
+            return;
+          }
+          if (!res.ok) {
+            if (attempt < CLIENT_RETRY_ATTEMPTS) {
+              // Stay in "loading" (not "error") while we quietly retry,
+              // so a transient hiccup never flashes a scary message.
+              retryTimer = setTimeout(() => load(attempt + 1), CLIENT_RETRY_DELAY_MS);
+              return;
+            }
+            setState({ kind: "error", message: `HTTP ${res.status}` });
+            return;
+          }
+          const body = (await res.json()) as { inspection: InspectionReport | null };
+          if (cancelled) return;
+          if (!body.inspection) setState({ kind: "missing" });
+          else setState({ kind: "ready", report: body.inspection });
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          if (attempt < CLIENT_RETRY_ATTEMPTS) {
+            retryTimer = setTimeout(() => load(attempt + 1), CLIENT_RETRY_DELAY_MS);
+            return;
+          }
+          setState({
+            kind: "error",
+            message: err instanceof Error ? err.message : "Failed",
+          });
         });
-      });
+    }
+
+    load(1);
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [carId]);
 
