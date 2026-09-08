@@ -60,26 +60,56 @@ function resolveSourceId(idParam: string): { fullId: string; sourceId: string } 
   return { fullId: `encar:${trimmed}`, sourceId: trimmed };
 }
 
-async function fetchEncarInspection(sourceId: string): Promise<unknown | null> {
+type EncarInspectionResult = {
+  data: unknown | null;
+  // True only when Encar explicitly confirmed there's no inspection for
+  // this listing (a real 404). False for every other failure mode
+  // (timeout, 5xx, network error) — those are transient, not a verdict.
+  confirmedMissing: boolean;
+};
+
+// A cold Vercel function hitting Encar's inspection endpoint with no
+// warm session/cookies (unlike scraper.js, which bootstraps one) can hit
+// a transient timeout or 5xx on the very first call — same "works on
+// refresh" symptom already fixed once for /api/cars. One quick retry
+// absorbs that instead of the route treating "Encar had a hiccup" the
+// same as "this car has no inspection", which used to make the section
+// say "unavailable" permanently until the visitor manually reloaded.
+const INSPECTION_FETCH_ATTEMPTS = 2;
+
+async function fetchEncarInspection(sourceId: string): Promise<EncarInspectionResult> {
   const url = `${ENCAR_INSPECTION_URL}/${encodeURIComponent(sourceId)}`;
-  try {
-    const res = await fetch(url, {
-      headers: ENCAR_HEADERS,
-      // Don't cache at the fetch layer; we cache in our DB instead.
-      cache: "no-store",
-    });
-    if (res.status === 404) return null;
-    if (!res.ok) {
-      console.warn(`Inspection fetch HTTP ${res.status} for ${sourceId}`);
-      return null;
+  let lastErrorMessage = "unknown error";
+
+  for (let attempt = 1; attempt <= INSPECTION_FETCH_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: ENCAR_HEADERS,
+        // Don't cache at the fetch layer; we cache in our DB instead.
+        cache: "no-store",
+      });
+      if (res.status === 404) {
+        // Encar itself says there's no inspection — trust it immediately,
+        // no point retrying a confirmed answer.
+        return { data: null, confirmedMissing: true };
+      }
+      if (!res.ok) {
+        lastErrorMessage = `HTTP ${res.status}`;
+      } else {
+        return { data: await res.json(), confirmedMissing: false };
+      }
+    } catch (error) {
+      lastErrorMessage = (error as Error).message;
     }
-    return await res.json();
-  } catch (error) {
-    console.warn(
-      `Inspection fetch error for ${sourceId}: ${(error as Error).message}`
-    );
-    return null;
+    if (attempt < INSPECTION_FETCH_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
   }
+
+  console.warn(
+    `Inspection fetch failed for ${sourceId} after ${INSPECTION_FETCH_ATTEMPTS} attempts: ${lastErrorMessage}`
+  );
+  return { data: null, confirmedMissing: false };
 }
 
 export async function GET(
@@ -135,7 +165,7 @@ export async function GET(
   }
 
   // ---- 2. fetch from Encar -----------------------------------------------
-  const raw = await fetchEncarInspection(sourceId);
+  const { data: raw, confirmedMissing } = await fetchEncarInspection(sourceId);
 
   if (!raw) {
     // Encar gave us nothing this time. Prefer serving stale cache over
@@ -146,9 +176,21 @@ export async function GET(
         { headers: { "Cache-Control": "public, max-age=300, s-maxage=300" } }
       );
     }
+    if (confirmedMissing) {
+      // Encar itself confirmed (404) this listing has no inspection —
+      // safe to cache this answer client-side for a while.
+      return NextResponse.json(
+        { inspection: null, cached: false, reason: "no-data" },
+        { status: 404, headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600" } }
+      );
+    }
+    // Transient failure (timeout/5xx/network), not a confirmed answer —
+    // 503 instead of 404 so the frontend shows "couldn't load" rather
+    // than the misleading "not available for this car", and so this
+    // response is never cached as if it were final.
     return NextResponse.json(
-      { inspection: null, cached: false, reason: "no-data" },
-      { status: 404 }
+      { inspection: null, cached: false, reason: "fetch-failed" },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
     );
   }
 
