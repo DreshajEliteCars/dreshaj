@@ -518,7 +518,10 @@ const TARGET_MAKES = [
     queryManufacturer: '폭스바겐',
     aliases: ['volkswagen', 'vw'],
     modelGroups: [
-      { queryModelGroup: '티구안', yearFrom: 2016, yearTo: 2020 },
+      // yearTo widened from 2020 -> null (2026-09-07): the 2020 cutoff was
+      // silently ignoring 2021+ Tiguans — live check showed 208 available
+      // in 2016-2020 vs 379 with no upper bound (~171 extra, all 2021+).
+      { queryModelGroup: '티구안', yearFrom: 2016, yearTo: null },
       { queryModelGroup: '제타',   yearFrom: 2016, yearTo: null },
       { queryModelGroup: '폴로',   yearFrom: 2016, yearTo: 2018 },
       { queryModelGroup: 'CC',     yearFrom: 2016, yearTo: null },
