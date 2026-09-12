@@ -64,6 +64,14 @@ const PAGE_SIZE = parsePositiveInt(process.env.SCRAPER_PAGE_SIZE) || 500;
 // Five retries with exponential backoff lets us absorb the occasional
 // Encar timeout / 502 mid-pagination instead of bailing on the bucket.
 const MAX_RETRIES = parsePositiveInt(process.env.SCRAPER_MAX_RETRIES) || 5;
+// Supabase's PostgREST gateway occasionally 504s on a large upsert
+// batch even when the write itself would have succeeded. Unlike Encar
+// calls (retried via getWithRetry above), executeSupabase() previously
+// had zero retry logic — one transient timeout killed the whole sync
+// mid-make, discarding 5+ minutes of already-fetched work. Confirmed in
+// production 2026-09-12 (runs #385, #386 both died on 'Upsert cars:
+// Gateway Timeout').
+const SUPABASE_MAX_RETRIES = parsePositiveInt(process.env.SCRAPER_SUPABASE_MAX_RETRIES) || 3;
 const PRICE_MARKUP_EUR = parsePositiveInt(process.env.SCRAPER_PRICE_MARKUP_EUR) || 400;
 
 // Hard cap on how many listings to fetch per make. Prevents runaway syncs
@@ -1855,10 +1863,43 @@ async function fetchManufacturerCars(target, options = {}) {
 // Supabase persistence (single `cars` table)
 // -----------------------------------------------------------------------------
 
+// Transient gateway/network failures worth retrying — NOT constraint
+// violations, bad column names, or other real errors, which should
+// fail immediately rather than retry and hide the actual bug.
+function isRetriableSupabaseError(error) {
+  const msg = String(error?.message || '').toLowerCase();
+  return (
+    msg.includes('gateway timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('timeout') ||
+    msg.includes('fetch failed') ||
+    msg.includes('network') ||
+    msg.includes('econnreset') ||
+    msg.includes('socket hang up') ||
+    msg.includes('service unavailable') ||
+    msg.includes('bad gateway')
+  );
+}
+
 async function executeSupabase(query, label) {
-  const { data, error } = await query;
-  if (error) throw new Error(`${label}: ${error.message}`);
-  return data;
+  let lastError;
+  for (let attempt = 1; attempt <= SUPABASE_MAX_RETRIES; attempt += 1) {
+    // Re-awaiting a Supabase query builder re-issues the request —
+    // confirmed empirically, it's not resolving a cached promise.
+    const { data, error } = await query;
+    if (!error) return data;
+    lastError = error;
+    if (attempt >= SUPABASE_MAX_RETRIES || !isRetriableSupabaseError(error)) {
+      throw new Error(`${label}: ${error.message}`);
+    }
+    const delayMs = 500 * 2 ** (attempt - 1);
+    console.error(
+      `${label} failed (${error.message}). Retrying in ${(delayMs / 1000).toFixed(1)}s ` +
+      `[attempt ${attempt}/${SUPABASE_MAX_RETRIES}]...`
+    );
+    await sleep(delayMs);
+  }
+  throw new Error(`${label}: ${lastError.message}`);
 }
 
 async function upsertCarRows(rows) {
